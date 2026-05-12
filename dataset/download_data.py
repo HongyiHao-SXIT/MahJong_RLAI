@@ -11,19 +11,24 @@ headers = {
     'Host': 'tenhou.net',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
 }
+REQUEST_TIMEOUT = 15
 
 
 def download_file(url):
     file_name = url.split('?')[1] + '.xml'
     try:
-        response = requests.get(url, stream=True, headers=headers)
-        with open(os.path.join(data_dir, file_name), 'w') as out_file:
-            game_type = int(re.search('<GO type="(\\d+)"', response.text).groups()[0])
-            if game_type & 0x10 or game_type & 0x04 or game_type & 0x02:  # 把混在里面的三人麻将、无赤牌、无食断的对局筛选掉
-                return
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        game_type_match = re.search('<GO type="(\\d+)"', response.text)
+        if game_type_match is None:
+            return
+        game_type = int(game_type_match.group(1))
+        if game_type & 0x10 or game_type & 0x04 or game_type & 0x02:  # 把混在里面的三人麻将、无赤牌、无食断的对局筛选掉
+            return
+        with open(os.path.join(data_dir, file_name), 'w', encoding='utf-8') as out_file:
             out_file.write(response.text)
         print(f"Downloaded {file_name} from {url}")
-    except:
+    except (requests.RequestException, OSError, ValueError):
         return
 
 
@@ -40,7 +45,10 @@ if __name__ == '__main__':
             data = f.readlines()
         for line in data:
             if '四鳳' in line:
-                link = re.search('<a href="(.*)">', line).groups()[0].replace('?log=', 'log/?')
+                match = re.search('<a href="(.*)">', line)
+                if match is None:
+                    continue
+                link = match.group(1).replace('?log=', 'log/?')
                 links.append(link)
     links = set(links)
     exists = list(map(lambda x: 'http://tenhou.net/0/log/?' + x.split('.')[0], os.listdir(data_dir)))

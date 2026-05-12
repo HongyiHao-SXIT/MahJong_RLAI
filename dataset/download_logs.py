@@ -12,17 +12,19 @@ headers = {
     'Host': 'tenhou.net',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
 }
+REQUEST_TIMEOUT = 15
 
 
 def download_logs(filename):
     try:
         url = f'https://tenhou.net/sc/raw/dat/{filename}.html.gz'
-        r = requests.get(url, headers=headers)
+        r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
         r = gzip.decompress(r.content).decode('utf-8')
-        with open(os.path.join(log_dir, f'{filename}.txt'), 'w') as f:
+        with open(os.path.join(log_dir, f'{filename}.txt'), 'w', encoding='utf-8') as f:
             f.write(r)
         print(f"Downloaded {filename}.txt from {url}")
-    except:
+    except (requests.RequestException, OSError, gzip.BadGzipFile, UnicodeDecodeError):
         return
 
 
@@ -32,7 +34,8 @@ def init_worker():
 
 if __name__ == '__main__':
     os.makedirs(log_dir, exist_ok=True)
-    r = requests.get('https://tenhou.net/sc/raw/list.cgi', headers=headers)
+    r = requests.get('https://tenhou.net/sc/raw/list.cgi', headers=headers, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
     filenames = re.findall('scc\\d+.html.gz', r.text)
     exists = list(map(lambda x: x[:-4], os.listdir(log_dir)))
     filenames = set(map(lambda x: x[:-8], filenames))

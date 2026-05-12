@@ -4,7 +4,7 @@ from typing import List
 import os
 from collections import Counter
 from itertools import combinations
-from .make_agari_table_2 import AGARI_TABLE, calc_key, to_pattern
+from .make_agari_table_2 import AGARI_TABLE, calculate_pattern_key, counter_to_pattern
 
 with open(os.path.join(os.path.dirname(__file__), AGARI_TABLE), 'rb') as f:
     agari_table = pickle.loads(f.read())
@@ -34,8 +34,8 @@ def is_agari(counter):
     """
     一般形、七对子返回一个或多个16进制数，国士无双返回True，没和返回None
     """
-    pattern = to_pattern(counter)
-    key = calc_key(pattern)
+    pattern = counter_to_pattern(counter)
+    key = calculate_pattern_key(pattern)
     if key in agari_table[0]:
         return agari_table[0][key]
     if key in agari_table[1]:
@@ -45,8 +45,8 @@ def is_agari(counter):
 
 
 def check_machi(counter):
-    ptn = to_pattern(counter)
-    key = calc_key(ptn)
+    ptn = counter_to_pattern(counter)
+    key = calculate_pattern_key(ptn)
     if key in machi_table[0]:
         return True
     if key in machi_table[1]:

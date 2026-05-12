@@ -5,7 +5,7 @@
 from make_agari_table_2 import *
 
 
-def remove_one_from_ptn(a):
+def remove_one_tile_from_pattern(a):
     ptns = []
     for i in range(len(a)):
         for j in range(len(a[i])):
@@ -46,12 +46,12 @@ MACHI_TABLE = 'MACHI_TABLE.pkl'
 if __name__ == '__main__':
     machi_table = {0: set(), 1: set()}
 
-    chitoi = ptn([[2], [2], [2], [2], [2], [2], [2]])
+    chitoi = generate_pattern_permutations([[2], [2], [2], [2], [2], [2], [2]])
     chitoi = list(filter(lambda x: all(_ in [0, 2] for _ in sum(x, [])), chitoi))
-    chitoi = unique(chitoi)
+    chitoi = deduplicate_patterns(chitoi)
     patterns = []
     for p in tqdm.tqdm(chitoi):
-        patterns.extend(remove_one_from_ptn(p))
+        patterns.extend(remove_one_tile_from_pattern(p))
     for a in [[[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [2]],
               [[1, 1, 1], [1, 1, 1], [1, 1, 1], [3], [2]],
               [[1, 1, 1], [1, 1, 1], [3], [3], [2]],
@@ -67,22 +67,22 @@ if __name__ == '__main__':
               [[1, 1, 1], [2]],
               [[3], [2]],
               [[2]]]:
-        ptns = unique(ptn(a))
-        for p in tqdm.tqdm(ptns):
-            patterns.extend(remove_one_from_ptn(p))
-    patterns = unique(patterns)
+        candidate_patterns = deduplicate_patterns(generate_pattern_permutations(a))
+        for p in tqdm.tqdm(candidate_patterns):
+            patterns.extend(remove_one_tile_from_pattern(p))
+    patterns = deduplicate_patterns(patterns)
     for p in patterns:
-        key = calc_key(p)
+        key = calculate_pattern_key(p)
         machi_table[0].add(key)
-    kokushi_ptns = []
+    kokushi_patterns = []
     p = [[1] for _ in range(12)]
     for i in range(13):
         p.insert(i, [2])
-        kokushi_ptns.extend(remove_one_from_ptn(p))
+        kokushi_patterns.extend(remove_one_tile_from_pattern(p))
         p.pop(i)
-    kokushi_ptns = unique(kokushi_ptns)
-    for p in tqdm.tqdm(kokushi_ptns):
-        key = calc_key(p)
+    kokushi_patterns = deduplicate_patterns(kokushi_patterns)
+    for p in tqdm.tqdm(kokushi_patterns):
+        key = calculate_pattern_key(p)
         machi_table[1].add(key)
 
     print('听牌pattern数:', len(machi_table[0]))

@@ -13,13 +13,13 @@ def ptn(a):
     if len(a) == 1:
         return [a]
     ret = list(permutations(a))
-    h1 = set()
+    seen_merge_keys = set()
     for i in range(len(a)):
         for j in range(i + 1, len(a)):
             key = str(a[i] + [0] + a[j])
-            if key not in h1:
-                h1.add(key)
-                h2 = set()
+            if key not in seen_merge_keys:
+                seen_merge_keys.add(key)
+                seen_patterns = set()
                 for k in range(len(a[i] + a[j]) + 1):
                     t = [0] * len(a[j]) + a[i] + [0] * len(a[j])
                     for m in range(len(a[j])):
@@ -29,8 +29,8 @@ def ptn(a):
                         continue
                     if len(t) > 9:
                         continue
-                    if str(t) not in h2:
-                        h2.add(str(t))
+                    if str(t) not in seen_patterns:
+                        seen_patterns.add(str(t))
                         t2 = copy.deepcopy(a)
                         t2.pop(i)
                         t2.pop(j - 1)
@@ -69,7 +69,7 @@ def calc_key(a):
 
 def find_hai_pos(a):
     ret_array = []
-    p_atama = 0
+    pair_position = 0
     for i in range(len(a)):
         for j in range(len(a[i])):
             if a[i][j] >= 2:
@@ -77,37 +77,37 @@ def find_hai_pos(a):
                     t = copy.deepcopy(a)
                     t[i][j] -= 2
                     p = 0
-                    p_k = []
-                    p_s = []
+                    triplet_positions = []
+                    sequence_positions = []
                     for k in range(len(t)):
                         for m in range(len(t[k])):
                             if ks == 0:
                                 if t[k][m] >= 3:
                                     t[k][m] -= 3
-                                    p_k.append(p)
+                                    triplet_positions.append(p)
                                 while len(t[k]) - m >= 3 and t[k][m] >= 1 and t[k][m + 1] >= 1 and t[k][m + 2] >= 1:
                                     t[k][m] -= 1
                                     t[k][m + 1] -= 1
                                     t[k][m + 2] -= 1
-                                    p_s.append(p)
+                                    sequence_positions.append(p)
                             else:
                                 while len(t[k]) - m >= 3 and t[k][m] >= 1 and t[k][m + 1] >= 1 and t[k][m + 2] >= 1:
                                     t[k][m] -= 1
                                     t[k][m + 1] -= 1
                                     t[k][m + 2] -= 1
-                                    p_s.append(p)
+                                    sequence_positions.append(p)
                                 if t[k][m] >= 3:
                                     t[k][m] -= 3
-                                    p_k.append(p)
+                                    triplet_positions.append(p)
                             p += 1
 
                     if all(_ == 0 for _ in sum(t, [])):
-                        ret = len(p_k) + (len(p_s) << 3) + (p_atama << 6)
+                        ret = len(triplet_positions) + (len(sequence_positions) << 3) + (pair_position << 6)
                         length = 10
-                        for x in p_k:
+                        for x in triplet_positions:
                             ret |= x << length
                             length += 4
-                        for x in p_s:
+                        for x in sequence_positions:
                             ret |= x << length
                             length += 4
                         if len(a) == 1:
@@ -121,27 +121,27 @@ def find_hai_pos(a):
                                     a == [[3, 1, 1, 1, 1, 1, 1, 2, 3]] or \
                                     a == [[3, 1, 1, 1, 1, 1, 1, 1, 4]]:
                                 ret |= 1 << 27
-                        if len(a) <= 3 and len(p_s) >= 3:
-                            p_ikki = 0
+                        if len(a) <= 3 and len(sequence_positions) >= 3:
+                            ikki_base_position = 0
                             for b in a:
                                 if len(b) == 9:
-                                    b_ikki1 = b_ikki2 = b_ikki3 = False
-                                    for x_ikki in p_s:
-                                        b_ikki1 |= (x_ikki == p_ikki)
-                                        b_ikki2 |= (x_ikki == p_ikki + 3)
-                                        b_ikki3 |= (x_ikki == p_ikki + 6)
-                                    if b_ikki1 and b_ikki2 and b_ikki3:
+                                    has_ikki_first_sequence = has_ikki_second_sequence = has_ikki_third_sequence = False
+                                    for sequence_position in sequence_positions:
+                                        has_ikki_first_sequence |= (sequence_position == ikki_base_position)
+                                        has_ikki_second_sequence |= (sequence_position == ikki_base_position + 3)
+                                        has_ikki_third_sequence |= (sequence_position == ikki_base_position + 6)
+                                    if has_ikki_first_sequence and has_ikki_second_sequence and has_ikki_third_sequence:
                                         ret |= 1 << 28
-                                p_ikki += len(b)
-                        if len(p_s) == 4 and \
-                                p_s[0] == p_s[1] and \
-                                p_s[2] == p_s[3]:
+                                ikki_base_position += len(b)
+                        if len(sequence_positions) == 4 and \
+                                sequence_positions[0] == sequence_positions[1] and \
+                                sequence_positions[2] == sequence_positions[3]:
                             ret |= 1 << 29
-                        elif len(p_s) >= 2 and len(p_k) + len(p_s) == 4:
-                            if len(p_s) - len(set(p_s)) >= 1:
+                        elif len(sequence_positions) >= 2 and len(triplet_positions) + len(sequence_positions) == 4:
+                            if len(sequence_positions) - len(set(sequence_positions)) >= 1:
                                 ret |= 1 << 30
                         ret_array.append(ret)
-            p_atama += 1
+            pair_position += 1
     if len(ret_array) > 0:
         ret_array = list(set(ret_array))
         return ','.join(map(hex, ret_array))

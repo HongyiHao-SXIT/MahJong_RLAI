@@ -398,7 +398,7 @@ class Mahjong(object):
         print("已断开与服务器的连接")
 
     def send(self, message):
-        self.client_socket.send(json.dumps(message).encode('utf-8') + b'\n')
+        self.client_socket.sendall(json.dumps(message).encode('utf-8') + b'\n')
 
     def recv(self):
         buffer = []

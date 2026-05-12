@@ -122,6 +122,8 @@ class TenhouIterableDataset(IterableDataset):
             return
 
         parse_func = getattr(playback, self.func_name, None)
+        if parse_func is None:
+            return
         for target in targets:
             try:
                 features, labels = parse_func(target=target)
@@ -136,7 +138,7 @@ class TenhouIterableDataset(IterableDataset):
                     if self.transform:
                         features, labels = self.transform((features, labels))
                     yield (features, labels)
-            except:
+            except Exception:
                 continue
 
     def __iter__(self):

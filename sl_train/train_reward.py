@@ -8,10 +8,11 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from dataset.data import process_reward_data, TenhouDataset
 from model.models import RewardPredictor
+from sl_train.training_utils import split_train_test_by_files
 
 
 @torch.no_grad()
-def model_test(model, dataset: TenhouDataset):
+def evaluate_model(model, dataset: TenhouDataset):
     total_error = 0
     total = 0
     length = len(dataset)
@@ -35,9 +36,7 @@ experiment = wandb.init(project='Mahjong', resume='allow', anonymous='must', nam
 
 train_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=4)
 test_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=4)
-length = len(train_set)
-len_train = int(0.8 * length)
-train_set.data_files, test_set.data_files = train_set.data_files[:len_train], train_set.data_files[len_train:]
+num_train_samples = split_train_test_by_files(train_set, test_set, train_ratio=0.8)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--hidden_dims', '-hd', default=50, type=int)
@@ -51,9 +50,9 @@ num_layers = args.num_layers
 model = RewardPredictor(74, hidden_dims, num_layers)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model.to(device)
-optim = Adam(model.parameters())
-loss_fcn = MSELoss()
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode='min', patience=1)
+optimizer = Adam(model.parameters())
+loss_function = MSELoss()
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=1)
 
 os.makedirs(f'output/{mode}-model/checkpoints', exist_ok=True)
 min_mse = torch.inf
@@ -66,12 +65,12 @@ for epoch in range(epochs):
         features, labels = process_reward_data(data)
         features, labels = features.to(device), labels.to(device)
         output = model(features)
-        loss = loss_fcn(output, labels)
-        optim.zero_grad()
+        loss = loss_function(output, labels)
+        optimizer.zero_grad()
         loss.backward()
-        optim.step()
+        optimizer.step()
         global_step += 1
-        print(f"Epoch-{epoch + 1}: {len_train - len(train_set)} / {len_train} loss={loss.item():.3f}".center(50, '-'), end='\r')
+        print(f"Epoch-{epoch + 1}: {num_train_samples - len(train_set)} / {num_train_samples} loss={loss.item():.3f}".center(50, '-'), end='\r')
         experiment.log({
             'train loss': loss.item(),
             'epoch': epoch + 1
@@ -81,7 +80,7 @@ for epoch in range(epochs):
 
     torch.save({"state_dict": model.state_dict(), "num_layers": num_layers, "hidden_dims": hidden_dims}, f'output/{mode}-model/checkpoints/epoch_{epoch + 1}.pt')
     model.eval()
-    mse = model_test(model, test_set)
+    mse = evaluate_model(model, test_set)
     if mse < min_mse:
         min_mse = mse
         torch.save({"state_dict": model.state_dict(), "num_layers": num_layers, "hidden_dims": hidden_dims}, f'output/{mode}-model/checkpoints/best.pt')
@@ -90,7 +89,7 @@ for epoch in range(epochs):
     experiment.log({
         'epoch': epoch + 1,
         'test_mse': mse,
-        'lr': optim.param_groups[0]['lr']
+        'lr': optimizer.param_groups[0]['lr']
     })
     scheduler.step(mse)
 

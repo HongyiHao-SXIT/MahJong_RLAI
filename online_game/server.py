@@ -63,7 +63,7 @@ class Client(object):
 
     def send(self, msg):
         if self.is_human():
-            self.client_socket.send(msg)
+            self.client_socket.sendall(msg)
 
     def close(self):
         if self.is_human():
@@ -274,8 +274,11 @@ class GameEnvironment(object):
 
     def send_personal(self, client: Union[socket.SocketType, Client], message):
         # logging.debug(yellow(f"Send {message}"))
-        message = json.dumps(message) + '\n'
-        client.send(message.encode('utf-8'))
+        message = json.dumps(message).encode('utf-8') + b'\n'
+        if isinstance(client, socket.SocketType):
+            client.sendall(message)
+        else:
+            client.send(message)
 
     def send_observers(self, who, message):
         observers = self.observe_info[who]
@@ -291,7 +294,10 @@ class GameEnvironment(object):
         for i, client in enumerate(self.clients):
             if i == exception or not client.is_human():
                 continue
-            client.send(message)
+            try:
+                client.send(message)
+            except Exception:
+                continue
         for username, (who, client) in self.observers.items():
             if who == exception_ob:
                 continue
@@ -1172,6 +1178,8 @@ class Server:
         AI_count = 4 if train else AI_count  # 训练模式下必须4个AI
         self.AI_count = AI_count
         self.train = train
+        self.handshake_timeout = 5
+        self.max_message_size = 64 * 1024
         self.game = GameEnvironment(has_aka=True, AI_count=AI_count, min_score=min_score, fast=fast, allow_observe=allow_observe, train=train)
         logging.info(red(f"Server running at {host}:{port} with {self.AI_count} AI..."))
 
@@ -1180,15 +1188,18 @@ class Server:
         logging.info(red("Server shutdown"))
         exit(0)
 
-    def recv_socket(self, client_socket):
+    def recv_socket(self, client_socket, max_bytes=None):
+        max_bytes = max_bytes or self.max_message_size
         buffer = []
-        while True:
+        while len(buffer) < max_bytes:
             data = client_socket.recv(1)
             if len(data) == 0:
                 break
             if data == b'\n':
                 break
             buffer.append(data)
+        if len(buffer) >= max_bytes:
+            raise ValueError('Message exceeds size limit')
         return b''.join(buffer).decode('utf-8')
 
     def handle_client(self, client: Client):
@@ -1307,14 +1318,27 @@ class Server:
         while 1:
             try:
                 client_socket, addr = self.server_socket.accept()
-                ready_to_read, _, _ = select.select([client_socket], [], [])
-                if ready_to_read:
-                    message = json.loads(self.recv_socket(client_socket))
-                    username = message.get('username')
-                    observe = message.get('observe')
-                    success, client = self.game.player_join(client_socket, username, observe)
-                    if success:
-                        threading.Thread(target=self.handle_client, args=(client,), daemon=True).start()
+                client_socket.settimeout(self.handshake_timeout)
+                try:
+                    ready_to_read, _, _ = select.select([client_socket], [], [], self.handshake_timeout)
+                    if not ready_to_read:
+                        client_socket.close()
+                        continue
+                    payload = self.recv_socket(client_socket, max_bytes=self.max_message_size)
+                    if len(payload) == 0:
+                        client_socket.close()
+                        continue
+                    message = json.loads(payload)
+                except (socket.timeout, json.JSONDecodeError, ValueError):
+                    client_socket.close()
+                    continue
+                finally:
+                    client_socket.settimeout(None)
+                username = message.get('username')
+                observe = message.get('observe')
+                success, client = self.game.player_join(client_socket, username, observe)
+                if success:
+                    threading.Thread(target=self.handle_client, args=(client,), daemon=True).start()
             except Exception:
                 continue
 
