@@ -1,6 +1,7 @@
 import copy
 import os
 import random
+from typing import Any, Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -8,7 +9,9 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import IterableDataset
 from dataset.tenhou import TenhouData
 
-def collate_fn_discard(batch):
+Sample = Tuple[Any, Any]
+
+def collate_fn_discard(batch) -> Tuple[torch.Tensor, torch.Tensor]:
     features = []
     labels = []
     for (f, lb) in batch:
@@ -19,7 +22,7 @@ def collate_fn_discard(batch):
     labels = labels // 4
     return features, labels
 
-def process_data(one_batch, label_trans=None):
+def process_data(one_batch, label_trans: Optional[Callable] = None) -> Tuple[torch.Tensor, torch.Tensor]:
     features = []
     labels = []
     for f, lb in one_batch:
@@ -32,7 +35,7 @@ def process_data(one_batch, label_trans=None):
     return features, labels
 
 
-def process_reward_data(one_batch):
+def process_reward_data(one_batch) -> Tuple[torch.Tensor, torch.Tensor]:
     features = []
     labels = []
     for f, lb in one_batch:
@@ -68,7 +71,10 @@ class TenhouDataset(object):
         data_file = self.data_files.pop()
         self.used_data.append(data_file)
         playback = TenhouData(os.path.join(self.data_dir, data_file))
-        targets = playback.get_rank()[self.target]
+        ranks = playback.get_rank()
+        if not ranks:
+            return True
+        targets = ranks[self.target]
         for target in targets:
             features, labels = playback.__getattribute__(self.func)(target=target)
             if isinstance(features, list):
@@ -79,13 +85,13 @@ class TenhouDataset(object):
                 self.data_buffer.append((features, labels))
         return True
 
-    def __call__(self):
+    def __call__(self) -> Optional[List[Sample]]:
         while len(self.data_buffer) < self.batch_size:
             try:
                 success = self.update_buffer()
                 if not success:  # exhausted
                     return None
-            except:  # corrupted data skip
+            except Exception:  # corrupted data skip
                 pass
         data, self.data_buffer = self.data_buffer[:self.batch_size], self.data_buffer[self.batch_size:]
         return data
@@ -117,8 +123,11 @@ class TenhouIterableDataset(IterableDataset):
         try:
             full_path = os.path.join(self.data_dir, data_file)
             playback = TenhouData(full_path)
-            targets = playback.get_rank()[0 : self.target_length]
-        except Exception as e:  # corrupted file, e.g. `.root` doesn't exist
+            ranks = playback.get_rank()
+            if not ranks:
+                return
+            targets = ranks[0 : self.target_length]
+        except Exception:  # corrupted file, e.g. `.root` doesn't exist
             return
 
         parse_func = getattr(playback, self.func_name, None)

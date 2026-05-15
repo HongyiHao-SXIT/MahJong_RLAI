@@ -9,6 +9,7 @@ from mahjong.game import MahjongGame
 from mahjong.utils import YAKU_LIST
 from mahjong.check_agari import is_agari
 from collections import Counter
+from typing import Optional
 
 
 class TenhouData(object):
@@ -22,7 +23,10 @@ class TenhouData(object):
             os.remove(log_file)
             return
         self.root = tree.getroot()
-        self.type = self.game_type()
+        game_type = self.game_type()
+        if game_type is None:
+            raise RuntimeError('未找到牌局类型信息')
+        self.type = game_type
         if not self.is_four_player_game():
             raise RuntimeError('暂不支持三人麻将')
 
@@ -31,6 +35,7 @@ class TenhouData(object):
             if 'owari' in child.attrib:
                 owari = list(map(float, child.attrib['owari'].split(',')))[1::2]
                 return np.array(owari).argsort().tolist()[::-1]
+        return []
 
     def print_info(self, info_int):
         print('牌局信息: ')
@@ -61,7 +66,7 @@ class TenhouData(object):
         if info_int & 0x80:
             print('上级桌')
 
-    def game_type(self):
+    def game_type(self) -> Optional[int]:
         for child in self.root:
             if child.tag == 'GO':
                 return int(child.attrib['type'])

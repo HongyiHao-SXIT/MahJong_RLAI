@@ -27,7 +27,7 @@ class Agent(object):
         self.discard_tiles = []
         self.river = []  # 没有被鸣走的牌河
         self.furo: OrderedDict[Tuple[int, Union[int, Tuple[int, int]]], List] = OrderedDict()  # 键: (int 0:吃 1:碰 2:暗杠 3:明杠, pattern or (pattern, nth)), 值: 具体的牌集合
-        self.kui_info: [Tuple] = []
+        self.kui_info: List[Tuple] = []
         self.declare_riichi = 0  # 是否宣言了立直
         self.riichi_status = 0  # 是否在立直状态
         self.riichi_round = 100  # 立直巡目(未立直时为100)
@@ -198,7 +198,7 @@ class Agent(object):
         # 加杠
         add_kan_patterns = []
         for (furo_type, ptn), tile_set in self.furo.items():
-            if furo_type == 1 and self.hand_tile_counter[ptn]:  # 碰出的刻子可以加杠
+            if furo_type == 1 and isinstance(ptn, int) and self.hand_tile_counter[ptn]:  # 碰出的刻子可以加杠
                 add = {ptn * 4 + _ for _ in range(4)}.difference(tile_set).pop()
                 add_kan_patterns.append((2, ptn, add))
         return bool(add_kan_patterns), add_kan_patterns

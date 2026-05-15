@@ -6,6 +6,7 @@ import traceback
 import argparse
 import os
 import ast
+from typing import Any, Dict, List, Optional
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from mahjong.display import *
@@ -17,42 +18,46 @@ class Mahjong(object):
     def __init__(self):
         super(Mahjong, self).__init__()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.username = None
+        self.username: str = ''
 
-        self.seat = self.wind = None
+        self.seat: int = 0
+        self.wind: str = '東家'
 
-        self.machi = None
+        self.machi: List[int] = []
         self.furiten = False
 
-        self.oya = None
-        self.game_round = None
-        self.honba = None
-        self.riichi_ba = None
-        self.dora_indicator = None
-        self.agents = None
-        self.left_num = None
+        self.oya: int = 0
+        self.game_round: int = 0
+        self.honba: int = 0
+        self.riichi_ba: int = 0
+        self.dora_indicator: List[int] = []
+        self.agents: List[Dict[str, Any]] = []
+        self.left_num: int = 0
 
-        self.tiles = None
-        self.furo = None
+        self.tiles: List[int] = []
+        self.furo: Dict[str, List[int]] = {}
         self.game_start = False  # 一轮游戏是否开始
         self.end = False  # 整局游戏终
 
         self.observe = False
 
-        self.latest_player = None
-        self.latest_discard_mode = None
-        self.latest_discard_tile = None
-        self.latest_event = None
+        self.latest_player: Optional[int] = None
+        self.latest_discard_mode: int = 0
+        self.latest_discard_tile: Optional[int] = None
+        self.latest_event: str = ''
 
     def set_game_info(self, game_info):
-        self.latest_event = self.latest_player = self.latest_discard_mode = self.latest_discard_tile = None
+        self.latest_event = ''
+        self.latest_player = None
+        self.latest_discard_mode = 0
+        self.latest_discard_tile = None
         self.furiten = False
         self.game_round = game_info['round']
         self.honba = game_info['honba']
         self.riichi_ba = game_info['riichi_ba']
-        self.dora_indicator = game_info['dora_indicator']
+        self.dora_indicator = list(game_info['dora_indicator'])
         self.oya = self.game_round % 4
-        self.agents = game_info['agents']
+        self.agents = list(game_info['agents'])
         self.left_num = game_info['left_num']
 
     def set_self_info(self, self_info):
@@ -60,8 +65,8 @@ class Mahjong(object):
             self.username = self_info['username']
             self.seat = self_info['seat']
             self.tiles = list(sorted(self_info['tiles']))
-            self.furo = self_info['furo']
-            self.machi = self_info['machi']
+            self.furo = dict(self_info['furo'])
+            self.machi = list(self_info['machi'])
             self.wind = ['東家', '南家', '西家', '北家'][self.seat - self.oya]
 
     def get_user_string(self, who):
@@ -91,19 +96,21 @@ class Mahjong(object):
             if p['riichi']:
                 player_info += red(' (立直)')
             discard_info = [
-                cyan(pad_string(TENHOU_TILE_STRING_DICT[_], 6)) if i < p['riichi_round'] else
-                green(pad_string(TENHOU_TILE_STRING_DICT[_], 6))
-                for i, _ in enumerate(p['discard'], 1)
+                cyan(pad_string(TENHOU_TILE_STRING_DICT[tile], 6)) if idx < p['riichi_round'] else
+                green(pad_string(TENHOU_TILE_STRING_DICT[tile], 6))
+                for idx, tile in enumerate(p['discard'], 1)
             ]
             if len(discard_info) <= 18:
-                discard_info = [discard_info]
+                discard_rows = [discard_info]
             else:
-                discard_info = [discard_info[:18], discard_info[18:]]
-            for i, info in enumerate(discard_info):
-                discard_info[i] = ' '.join(info)
-                if i > 0:
-                    discard_info[i] = ' ' * 6 + discard_info[i]
-            discard_info = '\n'.join(discard_info)
+                discard_rows = [discard_info[:18], discard_info[18:]]
+            discard_lines = []
+            for row_idx, info in enumerate(discard_rows):
+                line = ' '.join(info)
+                if row_idx > 0:
+                    line = ' ' * 6 + line
+                discard_lines.append(line)
+            discard_info = '\n'.join(discard_lines)
             print(player_info)
             print(magenta(f"牌河: ") + discard_info)
             if p['furo']:
@@ -141,7 +148,7 @@ class Mahjong(object):
             else:
                 print('\n' + machi_msg)
 
-    def make_decision(self, message):
+    def make_decision(self, message: Dict[str, Any]):
         actions = message['actions']
         msg = '\n可进行以下操作:'
         for i, action in enumerate(actions):
@@ -182,14 +189,16 @@ class Mahjong(object):
         else:
             print(decision)
 
-    def discard_tile(self, message):
-        tiles = message['tiles']
+    def discard_tile(self, message: Dict[str, Any]):
+        tiles_data = message['tiles']
         riichi = message['riichi']
         tsumo = message['tsumo']
-        if tiles == 'all':
-            tiles = self.tiles
-        elif len(tiles) > 1:
-            tiles = list(sorted(tiles))
+        if tiles_data == 'all':
+            tiles = list(self.tiles)
+        else:
+            tiles = list(tiles_data)
+            if len(tiles) > 1:
+                tiles.sort()
         if not self.observe:
             if not riichi:
                 banned = message['banned']
@@ -213,7 +222,7 @@ class Mahjong(object):
             self.tiles.remove(tile)
             self.tiles.sort()
             self.latest_player = self.seat
-            self.latest_discard_mode = tsumo == tile
+            self.latest_discard_mode = int(tsumo == tile)
             self.latest_discard_tile = tile
             self.agents[self.seat]['discard'].append(tile)
             self.send({'event': 'discard', 'who': self.seat, 'tile_id': tile})
@@ -233,7 +242,7 @@ class Mahjong(object):
                     value = message['value']
                     self.__setattr__(key, value)
                 elif event not in ['draw', 'select_tile', 'decision']:
-                    self.latest_event = None
+                    self.latest_event = ''
                 if event == 'score':
                     value = message['score']
                     for who, score in value:
@@ -397,10 +406,10 @@ class Mahjong(object):
                 break
         print("已断开与服务器的连接")
 
-    def send(self, message):
+    def send(self, message: Dict[str, Any]):
         self.client_socket.sendall(json.dumps(message).encode('utf-8') + b'\n')
 
-    def recv(self):
+    def recv(self) -> Dict[str, Any]:
         buffer = []
         while True:
             data = self.client_socket.recv(1)

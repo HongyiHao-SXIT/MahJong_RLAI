@@ -1,4 +1,4 @@
-from typing import List, Iterable
+from typing import List, Iterable, Tuple
 from copy import deepcopy, copy
 from collections import Counter
 
@@ -38,6 +38,8 @@ def encode_kezi(tile_id_list, kui_tile, where):
 
 def encode_kanzi(tile_id_list, kui_tile, where, add=None, pon_code=None):
     if add is not None:
+        if pon_code is None:
+            raise ValueError('pon_code is required when add is provided')
         pon_code |= 1 << 4
         return pon_code
     code = where % 4
@@ -47,7 +49,7 @@ def encode_kanzi(tile_id_list, kui_tile, where, add=None, pon_code=None):
     return code
 
 
-def parse_meld(m):
+def parse_meld(m) -> Tuple[int, List[int], int, int]:
     kui = m & 3
     if m & (1 << 2):  # 顺子
         t = (m & 0xfc00) >> 10
@@ -125,6 +127,7 @@ def parse_meld(m):
         else:
             return 4, h, h[r], kui
 
+    raise ValueError(f'Invalid meld code: {m}')
 
 def get_dora(d):
     """d为dora指示牌id"""

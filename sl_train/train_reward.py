@@ -18,20 +18,23 @@ def evaluate_model(model, dataset: TenhouDataset):
     length = len(dataset)
     while len(dataset) > 0:
         data = dataset()
-        if len(data) == 0:
+        if not data:
             break
         features, labels = process_reward_data(data)
         features, labels = features.to(device), labels.to(device)
         output = model(features)
         error = (output - labels).pow(2).sum()
-        total_error += error
+        total_error += float(error.item())
         total += len(labels)
         print(f"Testing {length - len(dataset)} / {length} Error: {error:.3f}".center(50, '-'), end='\r')
     dataset.reset()
+    if total == 0:
+        return 0.0
     return total_error / total
 
 mode = 'reward'
 experiment = wandb.init(project='Mahjong', resume='allow', anonymous='must', name=f'train-{mode}')
+assert experiment is not None, 'wandb init failed'
 
 
 train_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=4)
@@ -56,11 +59,10 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', pa
 
 os.makedirs(f'output/{mode}-model/checkpoints', exist_ok=True)
 min_mse = torch.inf
-global_step = 0
 for epoch in range(epochs):
     while len(train_set) > 0:
         data = train_set()
-        if len(data) == 0:
+        if not data:
             break
         features, labels = process_reward_data(data)
         features, labels = features.to(device), labels.to(device)
@@ -69,7 +71,6 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        global_step += 1
         print(f"Epoch-{epoch + 1}: {num_train_samples - len(train_set)} / {num_train_samples} loss={loss.item():.3f}".center(50, '-'), end='\r')
         experiment.log({
             'train loss': loss.item(),
@@ -92,6 +93,9 @@ for epoch in range(epochs):
         'lr': optimizer.param_groups[0]['lr']
     })
     scheduler.step(mse)
+
+
+
 
 
 

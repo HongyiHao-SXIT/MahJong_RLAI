@@ -22,7 +22,7 @@ def evaluate_model(model, dataset: TenhouDataset):
     length = len(dataset)
     while len(dataset) > 0:
         data = dataset()
-        if len(data) == 0:
+        if not data:
             break
         features, labels = process_data(data, label_trans=lambda x: x // 4)
         features, labels = features.to(device), labels.to(device)
@@ -31,10 +31,12 @@ def evaluate_model(model, dataset: TenhouDataset):
         # available = (features[:, :16] * features[:, 86: 90].repeat_interleave(4, 1)).sum(1) != 0
         pred = (output * available).argmax(1)
         correct = (pred == labels).sum()
-        acc += correct
+        acc += int(correct.item())
         total += len(labels)
         print(f"Testing {length - len(dataset)} / {length} acc: {correct.item() / len(labels):.3f}".center(50, '-'), end='\r')
     dataset.reset()
+    if total == 0:
+        return 0.0
     return acc / total
 
 
@@ -45,6 +47,7 @@ parser.add_argument('--epochs', '-e', default=10, type=int)
 args = parser.parse_args()
 
 experiment = wandb.init(project='Mahjong', resume='allow', anonymous='must', name=f'train-{mode}-sl')
+assert experiment is not None, 'wandb init failed'
 train_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=2)
 test_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=2)
 num_train_samples = split_train_test_by_files(train_set, test_set, train_ratio=0.8)
@@ -61,7 +64,6 @@ epochs = args.epochs
 
 os.makedirs(f'output/{mode}-model/checkpoints', exist_ok=True)
 max_acc = 0
-global_step = 0
 # patched dataset and loader
 dataset = TenhouIterableDataset(
     data_dir='data',
@@ -86,7 +88,6 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        global_step += 1
         print(f"Epoch-{epoch + 1}: {num_train_samples - len(train_set)} / {num_train_samples} loss={loss.item():.3f}".center(50, '-'), end='\r')
         experiment.log({
             'train loss': loss.item(),

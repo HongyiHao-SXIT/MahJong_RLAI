@@ -1,5 +1,6 @@
 from termcolor import colored
 import unicodedata
+from typing import Optional
 
 ASCII_TILES = {
     0: """　＿＿＿ 
@@ -319,7 +320,7 @@ def light_grey(s):
     return colored(s, color='light_grey', attrs=['bold', 'blink'])
 
 
-def ascii_style_print(tile_groups, with_color='green'):
+def ascii_style_print(tile_groups, with_color: Optional[str] = 'green'):
     ascii_group = []
     for tiles in tile_groups:
         ascii_str = list(map(lambda x: x.split('\n'), [TENHOU_TILE_ASCII[_] for _ in tiles]))

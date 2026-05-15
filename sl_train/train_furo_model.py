@@ -41,6 +41,7 @@ args = parser.parse_args()
 mode = args.mode
 
 experiment = wandb.init(project='Mahjong', resume='allow', anonymous='must', name=f'train-{mode}-sl')
+assert experiment is not None, 'wandb init failed'
 train_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=2)
 test_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_length=2)
 num_train_samples = split_train_test_by_files(train_set, test_set, train_ratio=0.8)
@@ -61,11 +62,10 @@ epochs = args.epochs
 
 os.makedirs(f'output/{mode}-model/checkpoints', exist_ok=True)
 max_f1 = 0
-global_step = 0
 for epoch in range(epochs):
     while len(train_set) > 0:
         data = train_set()
-        if len(data) == 0:
+        if not data:
             break
         features, labels = process_data(data, label_trans=lambda x: x.float())
         features, labels = features.to(device), labels.to(device)
@@ -74,7 +74,6 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        global_step += 1
         print(f"Epoch-{epoch + 1}: {num_train_samples - len(train_set)} / {num_train_samples} loss={loss.item():.3f}".center(50, '-'), end='\r')
         experiment.log({
             'train loss': loss.item(),

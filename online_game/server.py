@@ -3,7 +3,7 @@ import signal
 import os
 import argparse
 import sys
-from typing import Union
+from typing import Any, Dict, List, Optional, Union
 import random
 import numpy as np
 from collections import defaultdict, OrderedDict
@@ -38,7 +38,7 @@ class ControlledQueue(Queue):
     def allow_put(self):
         self._allow_put = True
 
-    def put(self, item, block: bool = ..., timeout=...) -> None:
+    def put(self, item, block: bool = True, timeout=None) -> None:
         if self._allow_put:
             self._allow_put = False
             super().put(item, block, timeout)
@@ -103,7 +103,7 @@ class GameEnvironment(object):
         self.game_start = False
         self.AI_count = AI_count
         if AI_count > 0:
-            self.ai_agent = AiAgent()
+            self.ai_agent: Optional[AiAgent] = AiAgent()
         else:
             self.ai_agent = None
         self.min_score = min_score
@@ -158,7 +158,7 @@ class GameEnvironment(object):
         for i in range(self.AI_count):
             self.clients.append(Client(f'一姬{i + 1}(简单)', username=f'一姬{i + 1}(简单)'))
 
-    def update(self, key, value, client: Client = None):
+    def update(self, key, value, client: Optional[Client] = None):
         if client is None:
             self.send_multiply({'event': 'update', 'key': key, 'value': value})
         else:
@@ -326,6 +326,9 @@ class GameEnvironment(object):
         return self.discard_by_ai(who, tiles, banned)
 
     def decision_by_ai(self, who, actions, after_tsumo):
+        if self.ai_agent is None:
+            raise RuntimeError('AI agent is not initialized')
+        ai_agent = self.ai_agent
         state = self.game.get_feature(who)
         pon_action = None
         chi_actions = {}
@@ -335,10 +338,10 @@ class GameEnvironment(object):
 
         for i, action in enumerate(actions):
             if action['type'] == 'agari':
-                if self.ai_agent.agari_decision(self.agents, action):
+                if ai_agent.agari_decision(self.agents, action):
                     action_score_dict[i] = 1
             elif action['type'] == 'riichi':
-                score = self.ai_agent.riichi_decision(state)
+                score = ai_agent.riichi_decision(state)
                 logging.debug(yellow(f'「{self.clients[who].username}」「立直」行为意愿: {score:.3f}'))
                 action_score_dict[i] = score
             elif action['type'] == 'ryuukyoku':
@@ -370,17 +373,17 @@ class GameEnvironment(object):
         if pon_action:
             i, pon_feature = pon_action
             pon_state = np.concatenate([pon_feature, state], axis=0)
-            action_score_dict[i] = score = self.ai_agent.pon_decision(pon_state)
+            action_score_dict[i] = score = ai_agent.pon_decision(pon_state)
             logging.debug(yellow(f'「{self.clients[who].username}」「碰」行为意愿: {score:.3f}'))
         if chi_actions:
             for i, chi_feature in chi_actions.values():
                 chi_state = np.concatenate([chi_feature, state], axis=0)
-                action_score_dict[i] = score = self.ai_agent.chi_decision(chi_state)
+                action_score_dict[i] = score = ai_agent.chi_decision(chi_state)
                 logging.debug(yellow(f'「{self.clients[who].username}」「吃」行为意愿: {score:.3f}'))
         if kan_actions:
             for i, kan_feature in kan_actions:
                 kan_state = np.concatenate([kan_feature, state], axis=0)
-                action_score_dict[i] = score = self.ai_agent.kan_decision(kan_state)
+                action_score_dict[i] = score = ai_agent.kan_decision(kan_state)
                 logging.debug(yellow(f'「{self.clients[who].username}」「杠」行为意愿: {score:.3f}'))
         if action_score_dict:
             max_score_action, max_score = max(action_score_dict.items(), key=lambda x: x[1])
@@ -394,12 +397,15 @@ class GameEnvironment(object):
         return actions[0]
 
     def discard_by_ai(self, who, tiles, banned):
+        if self.ai_agent is None:
+            raise RuntimeError('AI agent is not initialized')
+        ai_agent = self.ai_agent
         if not self.fast:
             time.sleep(1 + random.random() * 2)
         if banned:
             tiles = [_ for _ in tiles if _ // 4 not in banned]
         state = self.game.get_feature(who)
-        discard, conf = self.ai_agent.discard(state, tiles)
+        discard, conf = ai_agent.discard(state, tiles)
         logging.debug(yellow(f"「{self.clients[who].username}」以置信度:{conf:.3f} 切出「{TENHOU_TILE_STRING_DICT[discard]}」"))
         if self.train:
             self.collected_data[who].append([state, discard // 4])
@@ -609,11 +615,11 @@ class GameEnvironment(object):
         """
         player = self.agents[who]
         connection = self.clients[who]
-        actions = [{'type': 'pass'}]
+        actions: List[Dict[str, Any]] = [{'type': 'pass'}]
         can_agari = False
         """判定和牌"""
         agari = None
-        yaku = None
+        yaku: Optional[Yaku] = None
         tenhou = False  # 天、地和
         if tile_id // 4 in player.machi:
             if where == -1:
@@ -687,6 +693,8 @@ class GameEnvironment(object):
                 action = self.decision_by_ai(who, actions, True)
             if action['type'] == 'agari':
                 if 'yaku' not in action:
+                    if yaku is None:
+                        raise RuntimeError('Missing yaku context')
                     if isinstance(agari, str):
                         x = list(map(lambda _: int(_, 16), agari.split(',')))
                         han, fu, score, ret = yaku.yaku(x)
@@ -728,6 +736,8 @@ class GameEnvironment(object):
                     action['han'] = han
                     action['fu'] = fu
                     action['score'] = score
+                if yaku is None:
+                    raise RuntimeError('Missing yaku context')
                 action['yaku_list'] = yaku.parse_yaku_ret(action['yaku'], True)
                 action['hai'] = yaku.hand_tiles
                 action['furo'] = list(yaku.furo.values())
@@ -751,9 +761,9 @@ class GameEnvironment(object):
         """
         player = self.agents[who]
         connection = self.clients[who]
-        actions = [{'type': 'pass', 'who': who}]
+        actions: List[Dict[str, Any]] = [{'type': 'pass', 'who': who}]
         can_agari = False
-        yaku = None
+        yaku: Optional[Yaku] = None
         agari = None
         if not player.furiten:
             """判定和牌"""
@@ -828,6 +838,8 @@ class GameEnvironment(object):
                 action = self.decision_by_ai(who, actions, False)
             if action['type'] == 'agari':
                 if 'yaku' not in action:
+                    if yaku is None:
+                        raise RuntimeError('Missing yaku context')
                     if isinstance(agari, str):
                         x = list(map(lambda _: int(_, 16), agari.split(',')))
                         han, fu, score, ret = yaku.yaku(x)
@@ -844,6 +856,8 @@ class GameEnvironment(object):
                     action['han'] = han
                     action['fu'] = fu
                     action['score'] = score
+                if yaku is None:
+                    raise RuntimeError('Missing yaku context')
                 action['yaku_list'] = yaku.parse_yaku_ret(action['yaku'], False)
                 action['hai'] = yaku.hand_tiles
                 action['furo'] = list(yaku.furo.values())
@@ -943,10 +957,14 @@ class GameEnvironment(object):
                 kan_type, pattern, add = action['pattern']
                 if kan_type == 0:
                     kan_tile_list = p.search_furo(4, pattern, add)
+                    if kan_tile_list is None:
+                        raise RuntimeError('Invalid closed kan tiles')
                     self.game.kan(self.current_player, kan_tile_list, from_who=self.current_player, mode=0)
                     logging.info(blue(f"「{self.clients[self.current_player].username}」暗杠「{' '.join(TENHOU_TILE_STRING_DICT[_] for _ in kan_tile_list)}」"))
                 else:
                     kan_tile_list = p.search_furo(2, pattern, add)
+                    if kan_tile_list is None:
+                        raise RuntimeError('Invalid added kan tiles')
                     agari_actions = []
                     jobs = []
                     self.send_multiply({'event': 'addkan', 'action': action})
@@ -986,25 +1004,25 @@ class GameEnvironment(object):
         mode = tile_id == tsumo  # 是否为摸切。如果banned为空，则tsumo为自摸的牌，否则tsumo为被鸣的牌，则必定不是摸切
         return tile_id, mode
 
-    def send_all_game_info(self, client: Client = None):
+    def send_all_game_info(self, client: Optional[Client] = None):
         game_info = self.get_game_info()
         if client is None:
             for i in range(4):
                 player_info = self.get_player_info(i)
-                client = self.clients[i]
-                if client.is_human():
-                    self.send_personal(client, {'event': 'start', 'game': game_info, 'self': player_info})
+                player_client = self.clients[i]
+                if player_client.is_human():
+                    self.send_personal(player_client, {'event': 'start', 'game': game_info, 'self': player_info})
                 for observer in self.observe_info[i]:
                     self.send_personal(observer, {'event': 'start', 'game': game_info, 'self': player_info})
-        elif client in self.clients:
+        elif client is not None and client in self.clients:
             who = self.clients.index(client)
             player_info = self.get_player_info(who)
             self.send_personal(client, {'event': 'start', 'game': game_info, 'self': player_info})
-        elif client.username in self.observers:
-            who, client = self.observers[client.username]
+        elif client is not None and client.username in self.observers:
+            who, observer_client = self.observers[client.username]
             player_info = self.get_player_info(who)
             try:
-                self.send_personal(client, {'event': 'start', 'game': game_info, 'self': player_info})
+                self.send_personal(observer_client, {'event': 'start', 'game': game_info, 'self': player_info})
             except Exception:
                 pass
 
@@ -1033,7 +1051,7 @@ class GameEnvironment(object):
         banned = []
         after_tsumo = True
         while 1:
-            is_riichi_tile = p.declare_riichi and p.riichi_tile == -1
+            is_riichi_tile = bool(p.declare_riichi and p.riichi_tile == -1)
             """玩家选择一张牌"""
             if not p.riichi_status:  # 没立直才能选牌
                 if p.declare_riichi:
@@ -1312,12 +1330,11 @@ class Server:
             tb = traceback.format_exc()
             logging.debug(red(f"An exception occurred: {e}"))
             logging.debug(red(f"Traceback info:\n{tb}"))
-            pass
 
     def handle_connection(self):
         while 1:
             try:
-                client_socket, addr = self.server_socket.accept()
+                client_socket, _addr = self.server_socket.accept()
                 client_socket.settimeout(self.handshake_timeout)
                 try:
                     ready_to_read, _, _ = select.select([client_socket], [], [], self.handshake_timeout)
