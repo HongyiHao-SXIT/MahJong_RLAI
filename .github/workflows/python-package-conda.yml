@@ -13,7 +13,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
-    - name: Set up Python 3.10
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -30,4 +30,8 @@ jobs:
         python -m flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        python -m pytest
+        if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+          python -m pytest
+        else
+          echo "No tests found, skipping pytest."
+        fi

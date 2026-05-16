@@ -153,7 +153,7 @@ class GameEnvironment(object):
         self.current_player = 0
         self.game_start = False
         if self.train:
-            # self.collected_data.clear()
+            self.collected_data.clear()
             self.reward_features.clear()
         for i in range(self.AI_count):
             self.clients.append(Client(f'一姬{i + 1}(简单)', username=f'一姬{i + 1}(简单)'))
@@ -405,7 +405,27 @@ class GameEnvironment(object):
         if banned:
             tiles = [_ for _ in tiles if _ // 4 not in banned]
         state = self.game.get_feature(who)
-        discard, conf = ai_agent.discard(state, tiles)
+
+        if self.train and ai_agent.discard_model is not None:
+            # In training mode we sample actions from policy distribution for on-policy RL.
+            state_tensor = torch.from_numpy(state).float()[None].to(ai_agent.device)
+            with torch.no_grad():
+                output = ai_agent.discard_model(state_tensor).softmax(1)[0]
+            available = list(sorted(set(_ // 4 for _ in tiles)))
+            prob = output[available]
+            prob_sum = prob.sum()
+            if float(prob_sum.item()) <= 0:
+                prob = torch.ones_like(prob) / len(available)
+            else:
+                prob = prob / prob_sum
+            sampled = torch.multinomial(prob, 1).item()
+            pred = available[sampled]
+            candidates = [_ for _ in tiles if _ // 4 == pred]
+            discard = max(candidates)
+            conf = float(prob[sampled].item())
+        else:
+            discard, conf = ai_agent.discard(state, tiles)
+
         logging.debug(yellow(f"「{self.clients[who].username}」以置信度:{conf:.3f} 切出「{TENHOU_TILE_STRING_DICT[discard]}」"))
         if self.train:
             self.collected_data[who].append([state, discard // 4])

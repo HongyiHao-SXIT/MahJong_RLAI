@@ -69,7 +69,13 @@ $ python online_game/client.py -U User1 -H localhost
 ```
 
 ## Self-Play
-目前只做了环境，并没有加入任何强化学习的逻辑
+已经提供基于自博弈 + Reward Predictor 的策略梯度训练脚本（REINFORCE）用于微调弃牌策略。
+
+```shell
+$ python rl_train/train_discard_rl.py --episodes 200 --gamma 0.99 --lr 1e-5
+```
+
+训练脚本会在每局结束后，用 reward-model 计算增量回报并对弃牌策略执行一次 on-policy 更新，checkpoint 默认保存到 `output/discard-rl-model/checkpoints/`。
 ```shell
 $ python online_game/server.py -A 4 -f  # -f参数开启快速模式，跳过所有AI思考时间和等待时间
 $ python online_game/server.py -A 4 -d -ob  # -ob参数开启观战模式(不建议在-f模式下进行观战...)
