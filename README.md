@@ -1,101 +1,203 @@
-# 基于Suphx的立直麻将AI
+# Mahjong AI based on Suphx
 
-妄图通过复现[Suphx](https://arxiv.org/abs/2003.13590)模型来训练一个帮我冲段的麻将AI
+A Riichi Mahjong AI reproducing Microsoft Research Asia's [Suphx](https://arxiv.org/abs/2003.13590) model, supporting a complete training pipeline: **Supervised Learning → Reinforcement Learning Fine-tuning → Online Play**.
 
+---
 
-## 数据下载
+## Environment Setup
 
-有监督学习部分，需要人类高质量对局作为参考，因此采用最高水平麻雀平台[「天凤」](https://tenhou.net/)的凤凰桌的对局牌谱作为数据来源。
-
-### 下载近期数据
-
-```shell
-$ python dataset/download_logs.py  # 下载天凤平台7日内游戏对局日志到logs目录
-$ python dataset/download_data.py  # 通过前面下载的日志下载牌谱信息到data目录
+```powershell
+conda create -n mahjong python=3.9 -y
+conda activate mahjong
+pip install -r requirements.txt
 ```
 
-### 下载历年数据
+Primary dependencies: `PyTorch 2.0`, `numpy`, `websockify`.
 
-前往[天凤日志记录平台](https://tenhou.net/sc/raw/)手动下载「過去ログ」即可。
-解压以后可调用ungz.sh获取其中scc牌谱。
+Training and gameplay require a GPU. Run `python check.py` to verify CUDA availability.
 
-例如：
-```shell
-$ ./ungz.sh 2022/
+---
+
+## Quick Start: Play Against AI
+
+### 1. Prepare Models
+
+Place trained weights under `model/saved/`:
+
+```
+model/saved/
+├── discard-model/best.pt   # Discard model (required)
+├── riichi-model/best.pt    # Riichi model
+├── furo-model/best.pt      # Furo (meld) model
+└── reward-model/best.pt    # Reward predictor
 ```
 
-然后将路径下的所有生成的.txt文件转移到logs/路径下，并调用
-```shell
-$ python dataset/download_data.py
+### 2. Start Server (Terminal 1)
+
+```powershell
+python online_game/server.py -A 3 -H 0.0.0.0
 ```
 
-## 有监督学习
+| Flag | Description |
+|------|-------------|
+| `-A N` | Number of AI players (remaining seats for humans) |
+| `-f` | Fast mode, skip thinking/waiting animations |
+| `-d` | Debug mode, output AI decision confidence |
+| `-ob` | Spectator mode |
 
-- 训练弃牌模型
-```shell
-$ python sl_train/train_discard_model.py --num_layers 50 --epochs 10
-```
-- 训练立直模型
-```shell
-$ python sl_train/train_riichi_model.py --num_layers 20 --epochs 10
-```
+### 3. Start WebSocket Bridge (Terminal 2)
 
-- 训练副露模型
-```shell
-$ python sl_train/train_furo_model.py --mode chi --num_layers 50 --epochs 10 --pos_weight 10
-```
-## 与AI玩耍
-
-实现规则：
-
-- 四人、南风场、有赤牌、有食断、有一发役
-- 禁止现物食替、筋食替
-- 开杠时即翻宝牌
-- 国士无双不可抢暗杠
-- 流局包含：荒牌流局、九种九牌、四风连打、四杠散了、四家立直、三家和了
-- 流局满贯不计和牌
-- 大三元、大小四喜不设包牌
-
-0. 服务端代码写的一坨💩，请大佬们轻喷或提供更好的实现！（欢迎pr）
-1. 将训练好的弃牌模型放置于model/saved/discard-model/best.pt
-2. 将训练好的其他模型放置在类似的位置（可在[此链接](https://drive.google.com/file/d/1P1gSAOHLW61k-GHSFgKHbFxQINI0NfQm/view)下载我训练好的模型权重用作测试或进一步训练）
-3. 运行服务端程序。使用下面的命令开启带有三个AI的游戏（通过-H参数指定监听的IP地址，默认为0.0.0.0），想在服务端观察到更多游戏细节（如AI做出决策的置信度等），可添加-d参数开启debug模式
-```shell
-$ python online_game/server.py -A 3 -H 0.0.0.0
-```
-4. 运行客户端程序（<del>目前只提供终端版的客户端，请见谅</del> 现在已经提供了网页版客户端了！。使用下面的命令以用户名：User1加入游戏（通过-H参数指定连接的IP地址,默认为localhost）
-```shell
-$ python online_game/client.py -U User1 -H localhost
+```powershell
+websockify 8888 127.0.0.1:9999
 ```
 
-## Self-Play
-已经提供基于自博弈 + Reward Predictor 的策略梯度训练脚本（REINFORCE）用于微调弃牌策略。
+### 4. Start Web Client (Terminal 3)
 
-```shell
-$ python rl_train/train_discard_rl.py --episodes 200 --gamma 0.99 --lr 1e-5
+```powershell
+cd online_game/web_client
+python -m http.server 8080
 ```
 
-训练脚本会在每局结束后，用 reward-model 计算增量回报并对弃牌策略执行一次 on-policy 更新，checkpoint 默认保存到 `output/discard-rl-model/checkpoints/`。
-```shell
-$ python online_game/server.py -A 4 -f  # -f参数开启快速模式，跳过所有AI思考时间和等待时间
-$ python online_game/server.py -A 4 -d -ob  # -ob参数开启观战模式(不建议在-f模式下进行观战...)
+Open `http://localhost:8080` in a browser, enter a username, and click "Connect" to start playing.
 
-$ python online_game/client.py -ob "一姬1(简单)"  # 观战某个玩家（现在可以用下面提供的网页版客户端来观战啦～）
+> A command-line client is also available: `python online_game/client.py -U User1 -H localhost`
+
+---
+
+## Game Rules
+
+- Four-player South (hanchan), with red fives (akadora), open tanyao (kuitan), and ippatsu
+- Prohibited: kuikae by genbutsu or suji
+- Kan flips the dora indicator immediately; kokushi musou cannot chankan a closed kan
+- Ryuukyoku types: exhaustive draw, kyuushuu kyuuhai, suufon renda, suukan sanran, suucha riichi, sanchahou
+- Ryuukyoku mangan does not count as a win; no pao rule for daisangen / dai/shou suushii
+
+---
+
+## Supervised Learning
+
+### Download Tenhou Game Records
+
+Collect high-level play data from the [Tenhou Houou table](https://tenhou.net/):
+
+```powershell
+# Download recent 7-day game logs → logs/
+python dataset/download_logs.py
+
+# Download game records from logs → data/
+python dataset/download_data.py
 ```
 
-## 网页版客户端
+For historical data, download `scraw` archives from the [Tenhou raw log archive](https://tenhou.net/sc/raw/), then:
 
-网页客户端素材(麻将牌的贴图、各种音效等)使用了天凤、雀魂平台的素材，并且在界面风格上仿照了天凤平台。
-
-首先运行服务端程序在9999端口，然后使用下面的命令监听8888端口的websocket流量，并将其转发至服务端端口9999。
-然后即可使用网页版客户端进行连接。(可自行修改各种端口号）
-```shell
-$ websockify 8888 127.0.0.1:9999  # 第一个端口号为网页中websocket连接端口，第二个为服务端socket监听端口。
+```powershell
+./ungz.sh 2022/           # Extract .scc game records
+mv 2022/*.txt logs/       # Move to logs/
+python dataset/download_data.py
 ```
-通过任意一种http服务打开online_game/web_client/index.html，即可轻松使用。
 
-最简单的http服务：
+### Train Models
 
-```shell
-$ python http.server -m 8080
+```powershell
+# Discard model (core)
+python sl_train/train_discard_model.py --num_layers 50 --epochs 10
+
+# Riichi model
+python sl_train/train_riichi_model.py --num_layers 20 --epochs 10
+
+# Furo (meld) model
+python sl_train/train_furo_model.py --mode chi --num_layers 50 --epochs 10 --pos_weight 10
+
+# Reward predictor
+python sl_train/train_reward.py
 ```
+
+---
+
+## Deep Reinforcement Learning (Self-Play Fine-tuning)
+
+Fine-tune the discard policy via self-play and the Reward Predictor, following the Suphx approach:
+
+```powershell
+# REINFORCE (basic policy gradient)
+python rl_train/train_discard_rl.py --episodes 200 --gamma 0.99 --lr 1e-5
+
+# PPO (Actor-Critic + Clipping + Entropy regularization)
+python rl_train/train_discard_ppo.py --episodes 200 --gamma 0.99 --actor_lr 1e-5 --critic_lr 2e-4
+
+# PPO + Oracle Guiding (teacher policy uses hidden features)
+python rl_train/train_discard_ppo.py --oracle_guiding --oracle_guiding_coef 0.05 --episodes 200
+```
+
+Checkpoints default to `output/discard-rl-model/checkpoints/` and `output/discard-ppo-model/checkpoints/`.
+
+Enable fast mode during self-play to reduce waiting time:
+
+```powershell
+python online_game/server.py -A 4 -f -ob
+```
+
+---
+
+## Project Structure
+
+```
+MahJong_RLAI/
+├── mahjong/              # Game engine
+│   ├── game.py           #   Main game loop, wall, rounds, dora management
+│   ├── agent.py          #   Player / AI agent state and decision-making
+│   ├── yaku.py           #   Yaku (hand pattern) evaluation
+│   ├── check_agari.py    #   Winning hand detection
+│   ├── utils.py          #   Utility functions (encoding/decoding/feature extraction)
+│   ├── display.py        #   Game display
+│   └── *.pkl             #   Precomputed tables (winning / waiting hands)
+├── dataset/              # Data collection and processing
+│   ├── download_logs.py  #   Download Tenhou game logs
+│   ├── download_data.py  #   Download game records
+│   ├── tenhou.py         #   Tenhou game record parser
+│   └── data.py           #   PyTorch Dataset wrapper
+├── model/                # Neural network models
+│   ├── models.py         #   DiscardModel / RiichiModel / FuroModel / RewardPredictor
+│   └── saved/            #   Trained model weights
+├── sl_train/             # Supervised learning training scripts
+│   ├── train_discard_model.py
+│   ├── train_riichi_model.py
+│   ├── train_furo_model.py
+│   ├── train_reward.py
+│   └── training_utils.py
+├── rl_train/             # Reinforcement learning training scripts
+│   ├── train_discard_rl.py    #  REINFORCE
+│   └── train_discard_ppo.py   #  PPO + Oracle Guiding
+├── online_game/          # Online play
+│   ├── server.py         #   Game server
+│   ├── client.py         #   CLI client
+│   └── web_client/       #   Web client (Phaser 3 + WebSocket)
+│       ├── index.html
+│       ├── js/src/       #   Rendering logic / networking
+│       ├── img/          #   Tile textures
+│       └── audio/        #   Sound effects
+├── check.py              # CUDA availability check
+└── requirements.txt
+```
+
+---
+
+## Model Architecture
+
+All policy networks are based on a **1D convolutional residual network**:
+
+- **Input**: 34-channel × tile-type features (hand tiles, melds, discards, dora, round context, etc.)
+- **Body**: N layers of ResBlock (3×1 Conv → BN → LeakyReLU → 3×1 Conv → BN → LeakyReLU + residual connection)
+- **Output**:
+  - `DiscardModel`: 34-dimensional logits (discard probabilities for 34 tile types)
+  - `RiichiModel`: scalar (riichi probability)
+  - `FuroModel`: scalar (meld probability)
+  - `RewardPredictor`: scalar (predicted final rank / score)
+
+---
+
+## References
+
+- [Suphx: Mastering Mahjong with Deep Reinforcement Learning](https://arxiv.org/abs/2003.13590)
+- [Tenhou](https://tenhou.net/)
+- [Tenhou Raw Log Archive](https://tenhou.net/sc/raw/)

@@ -49,7 +49,7 @@ async def play_one_episode(env: GameEnvironment):
         for i in range(4):
             env.reward_features[i].append(torch.from_numpy(env.game.get_game_feature(score_delta[i], scores[i])))
             for item in env.collected_data[i]:
-                if len(item) == 3:
+                if len(item) >= 3 and np.isscalar(item[-1]):
                     continue
                 features = torch.stack(env.reward_features[i])[None].float()
                 reward = env.reward(features, len(env.reward_features[i]) - 1)
@@ -68,16 +68,18 @@ def build_training_batch(collected_data, gamma: float) -> Tuple[np.ndarray, np.n
     episode_rewards: List[float] = []
 
     for player_records in collected_data.values():
-        rewards = [float(item[2]) for item in player_records if len(item) >= 3]
+        rewards = [float(item[-1]) for item in player_records if len(item) >= 3 and np.isscalar(item[-1])]
         if not rewards:
             continue
         player_returns = discounted_returns(rewards, gamma)
 
         idx = 0
         for item in player_records:
-            if len(item) < 3:
+            if len(item) < 3 or not np.isscalar(item[-1]):
                 continue
-            state, action, reward = item
+            state = item[0]
+            action = item[1]
+            reward = item[-1]
             states.append(state)
             actions.append(int(action))
             returns_all.append(float(player_returns[idx]))

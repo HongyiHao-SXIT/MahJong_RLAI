@@ -267,8 +267,8 @@ class MahjongGame(object):
 
     def get_wall_feature(self, wall_length=70):
         feature = np.zeros(shape=(wall_length, 34))
-        for tile_id in self.yama:
-            feature[tile_id // 4] = 1
+        for i, tile_id in enumerate(self.yama[:wall_length]):
+            feature[i, tile_id // 4] = 1
         return feature
 
     @staticmethod
@@ -399,18 +399,23 @@ class MahjongGame(object):
         ], axis=0)  # 22
 
     def get_feature(self, target, hidden_info_mask=0):
-        """ Oracle Agent能获取的全局信息 """
-        # hand_features = []
-        # for i in range(4):
-        #     if i == target:
-        #         hand_features.append(self.get_hand_tile_feature(self.agents[i].hand_tile_counter))
-        #     elif hidden_info_mask == 0:
-        #         hand_features.append(np.zeros(shape=(4, 34)))
-        #     else:
-        #         hand_features.append(self.get_hand_tile_feature(self.agents[i].hand_tile_counter) * hidden_info_mask)
-        # hand_feature = np.concatenate(hand_features)
-        # wall_feature = self.get_wall_feature() * hidden_info_mask if hidden_info_mask > 0 else np.zeros(shape=(70, 34))
-        hand_feature = self.get_hand_tile_feature(self.agents[target].hand_tile_counter)  # 手牌
+        """Oracle Agent能获取的全局信息.
+
+        hidden_info_mask=0时返回常规可见信息；>0时返回包含他家手牌与牌山信息的oracle特征。
+        """
+        if hidden_info_mask > 0:
+            hand_features = []
+            for i in range(4):
+                if i == target:
+                    hand_features.append(self.get_hand_tile_feature(self.agents[i].hand_tile_counter))
+                else:
+                    hand_features.append(self.get_hand_tile_feature(self.agents[i].hand_tile_counter) * hidden_info_mask)
+            hand_feature = np.concatenate(hand_features)
+            wall_feature = self.get_wall_feature() * hidden_info_mask
+        else:
+            hand_feature = self.get_hand_tile_feature(self.agents[target].hand_tile_counter)  # 手牌
+            wall_feature = None
+
         seat_feature = self.get_category_feature(target, 4)  # 自家座位
         rank_feature = self.get_category_feature(self.ranks[target], 4)  # 自家顺位
         discard_feature = self.get_discard_tile_feature(discard_length=24)  # 四家舍牌
@@ -426,9 +431,8 @@ class MahjongGame(object):
         score_feature = self.get_bucket_feature([_.score for _ in self.agents], bins=list(range(50, 450, 50)))  # 四家的分数，分为9个区间
         riichi_feature = self.get_reach_feature()  # 四家的立直情况
         oya_feature = self.get_category_feature(self.oya, 4)  # 亲家
-        features = np.concatenate([
+        feature_parts = [
             hand_feature,  # 16
-            # wall_feature,  # 70
             seat_feature,  # 4
             rank_feature,  # 4
             discard_feature,  # 4 * 24
@@ -444,7 +448,10 @@ class MahjongGame(object):
             score_feature,  # 9 * 4
             riichi_feature,  # 4
             oya_feature  # 4
-        ], axis=0)  # 373
+        ]
+        if wall_feature is not None:
+            feature_parts.insert(1, wall_feature)
+        features = np.concatenate(feature_parts, axis=0)
         return features
 
     def get_game_feature(self, round_score, target_score):

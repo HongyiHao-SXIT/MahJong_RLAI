@@ -87,7 +87,7 @@ class Client(object):
 
 class GameEnvironment(object):
 
-    def __init__(self, has_aka=True, AI_count=0, min_score=0, fast=False, allow_observe=True, train=False):
+    def __init__(self, has_aka=True, AI_count=0, min_score=0, fast=False, allow_observe=True, train=False, oracle_guiding=False, oracle_hidden_info_mask=1.0):
         self.game = MahjongGame(has_aka, is_playback=False)
         self.agents = self.game.agents
         self.round = 0
@@ -110,6 +110,8 @@ class GameEnvironment(object):
         self.fast = fast
         self.allow_observe = allow_observe
         self.train = train
+        self.oracle_guiding = train and oracle_guiding
+        self.oracle_hidden_info_mask = float(oracle_hidden_info_mask)
         if train:
             self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
             params = torch.load('model/saved/reward-model/best.pt', map_location=self.device)
@@ -428,7 +430,11 @@ class GameEnvironment(object):
 
         logging.debug(yellow(f"「{self.clients[who].username}」以置信度:{conf:.3f} 切出「{TENHOU_TILE_STRING_DICT[discard]}」"))
         if self.train:
-            self.collected_data[who].append([state, discard // 4])
+            data_item = [state, discard // 4]
+            if self.oracle_guiding:
+                oracle_state = self.game.get_feature(who, hidden_info_mask=self.oracle_hidden_info_mask)
+                data_item.append(oracle_state)
+            self.collected_data[who].append(data_item)
         return discard
 
     def print_agari_info(self, who, from_who, action):
@@ -1304,7 +1310,7 @@ class Server:
                 for i in range(4):
                     self.game.reward_features[i].append(torch.from_numpy(self.game.game.get_game_feature(score_delta[i], scores[i])))
                     for item in self.game.collected_data[i]:
-                        if len(item) == 3:
+                        if len(item) >= 3 and np.isscalar(item[-1]):
                             continue
                         features = torch.stack(self.game.reward_features[i])[None].float()
                         reward = self.game.reward(features, len(self.game.reward_features[i]) - 1)
