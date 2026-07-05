@@ -63,6 +63,11 @@ $ python sl_train/train_furo_model.py --mode chi --num_layers 50 --epochs 10 --p
 ```shell
 $ python online_game/server.py -A 3 -H 0.0.0.0
 ```
+
+## Noted by YiQing
+前端决定推翻重写，利用现有素材即可
+服务端待分析代码结构，并进行重构
+
 4. 运行客户端程序（<del>目前只提供终端版的客户端，请见谅</del> 现在已经提供了网页版客户端了！。使用下面的命令以用户名：User1加入游戏（通过-H参数指定连接的IP地址,默认为localhost）
 ```shell
 $ python online_game/client.py -U User1 -H localhost
