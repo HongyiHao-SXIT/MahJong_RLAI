@@ -53,9 +53,37 @@ websockify 8888 127.0.0.1:9999
 
 ### 4. Start Web Client (Terminal 3)
 
+<<<<<<< HEAD
 ```powershell
 cd online_game/web_client
 python -m http.server 8080
+=======
+实现规则：
+
+- 四人、南风场、有赤牌、有食断、有一发役
+- 禁止现物食替、筋食替
+- 开杠时即翻宝牌
+- 国士无双不可抢暗杠
+- 流局包含：荒牌流局、九种九牌、四风连打、四杠散了、四家立直、三家和了
+- 流局满贯不计和牌
+- 大三元、大小四喜不设包牌
+
+0. 服务端代码写的一坨💩，请大佬们轻喷或提供更好的实现！（欢迎pr）
+1. 将训练好的弃牌模型放置于model/saved/discard-model/best.pt
+2. 将训练好的其他模型放置在类似的位置（可在[此链接](https://drive.google.com/file/d/1P1gSAOHLW61k-GHSFgKHbFxQINI0NfQm/view)下载我训练好的模型权重用作测试或进一步训练）
+3. 运行服务端程序。使用下面的命令开启带有三个AI的游戏（通过-H参数指定监听的IP地址，默认为0.0.0.0），想在服务端观察到更多游戏细节（如AI做出决策的置信度等），可添加-d参数开启debug模式
+```shell
+$ python online_game/server.py -A 3 -H 0.0.0.0
+```
+
+## Noted by YiQing
+前端决定推翻重写，利用现有素材即可
+服务端待分析代码结构，并进行重构
+
+4. 运行客户端程序（<del>目前只提供终端版的客户端，请见谅</del> 现在已经提供了网页版客户端了！。使用下面的命令以用户名：User1加入游戏（通过-H参数指定连接的IP地址,默认为localhost）
+```shell
+$ python online_game/client.py -U User1 -H localhost
+>>>>>>> 7e2e8701e53a8db16f94e1108228b50f4c1c16b3
 ```
 
 Open `http://localhost:8080` in a browser, enter a username, and click "Connect" to start playing.
