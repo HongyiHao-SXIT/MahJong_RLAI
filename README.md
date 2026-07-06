@@ -37,10 +37,6 @@ model/saved/
 ```powershell
 python online_game/server.py -A 3 -H 0.0.0.0
 ```
-## Noted by YiQing
-前端决定推翻重写，利用现有素材即可
-服务端待分析代码结构，并进行重构
-
 | Flag | Description |
 |------|-------------|
 | `-A N` | Number of AI players (remaining seats for humans) |
