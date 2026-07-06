@@ -168,7 +168,7 @@ MahJong_RLAI/
 │   ├── train_discard_rl.py    #  REINFORCE
 │   └── train_discard_ppo.py   #  PPO + Oracle Guiding
 ├── online_game/          # Online play
-│   ├── server.py         #   Game server
+│   ├── server.exe         #   Game server
 │   ├── client.py         #   CLI client
 │   └── web_client/       #   Web client (Phaser 3 + WebSocket)
 │       ├── index.html
