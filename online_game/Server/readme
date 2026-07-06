@@ -1,0 +1,9 @@
+How to build it from source code:
+g++ -std=c++17 -O2 server.cpp -o server.exe -lws2_32
+
+
+How to use it:
+server.exe -H 0.0.0.0 -P 9999 -A 4 -f -d -ob -m 0
+
+-H : Listen Address
+-P : Listen Port
