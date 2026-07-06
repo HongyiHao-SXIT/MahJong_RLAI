@@ -204,3 +204,8 @@ All policy networks are based on a **1D convolutional residual network**:
 - [Suphx: Mastering Mahjong with Deep Reinforcement Learning](https://arxiv.org/abs/2003.13590)
 - [Tenhou](https://tenhou.net/)
 - [Tenhou Raw Log Archive](https://tenhou.net/sc/raw/)
+- [Tianshou](https://tianshou.org/en/stable/)
+
+## Contributers
+Lanyi_adict: Model & RL algorithm develop.
+YiQing: Frontend developemnt.

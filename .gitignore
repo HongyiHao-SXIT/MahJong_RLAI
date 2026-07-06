@@ -1,3 +1,5 @@
 .vscode/
 .idea/
 *.log
+model/saved/
+.pytest_cache/
