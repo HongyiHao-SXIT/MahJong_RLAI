@@ -35,12 +35,8 @@ model/saved/
 ### 2. 启动服务端（终端 1）
 
 ```powershell
-python online_game/server.py -A 3 -H 0.0.0.0
+online_game/server.exe -A 3 -H 0.0.0.0
 ```
-
-## Noted by YiQing
-前端决定推翻重写，利用现有素材即可
-服务端待分析代码结构，并进行重构
 
 | 参数 | 说明 |
 |------|------|
@@ -172,9 +168,8 @@ MahJong_RLAI/
 ├── rl_train/             # 强化学习训练脚本
 │   ├── train_discard_rl.py    #  REINFORCE
 │   └── train_discard_ppo.py   #  PPO + Oracle Guiding
-├── online_game/          #   在线游玩
-│   ├── server
-|   |   ├── server.cpp    #   游戏服务端
+├── online_game/          # 在线对战
+│   ├── server.exe        #   游戏服务端
 │   ├── client.py         #   命令行客户端
 │   └── mah-jong/         #   Godot客户端
 |       ├──anim/          #   动画
