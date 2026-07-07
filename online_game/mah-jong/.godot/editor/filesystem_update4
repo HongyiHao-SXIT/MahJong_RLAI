@@ -1,0 +1,4 @@
+res://Scenes/Main.tscn
+res://Scenes/MahJong.tscn
+res://anim/MahJong.tres
+res://Scripts/GameManager.gd

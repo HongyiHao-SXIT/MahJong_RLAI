@@ -146,7 +146,7 @@ python online_game/server.py -A 4 -f -ob
 
 ```
 MahJong_RLAI/
-├── mahjong/              # Game engine
+├── mahjong/              #   Game engine (Unedited)
 │   ├── game.py           #   Main game loop, wall, rounds, dora management
 │   ├── agent.py          #   Player / AI agent state and decision-making
 │   ├── yaku.py           #   Yaku (hand pattern) evaluation
@@ -154,15 +154,15 @@ MahJong_RLAI/
 │   ├── utils.py          #   Utility functions (encoding/decoding/feature extraction)
 │   ├── display.py        #   Game display
 │   └── *.pkl             #   Precomputed tables (winning / waiting hands)
-├── dataset/              # Data collection and processing
+├── dataset/              #   Data collection and processing
 │   ├── download_logs.py  #   Download Tenhou game logs
 │   ├── download_data.py  #   Download game records
 │   ├── tenhou.py         #   Tenhou game record parser
 │   └── data.py           #   PyTorch Dataset wrapper
-├── model/                # Neural network models
+├── model/                #   Neural network models
 │   ├── models.py         #   DiscardModel / RiichiModel / FuroModel / RewardPredictor
 │   └── saved/            #   Trained model weights
-├── sl_train/             # Supervised learning training scripts
+├── sl_train/             #   Supervised learning training scripts
 │   ├── train_discard_model.py
 │   ├── train_riichi_model.py
 │   ├── train_furo_model.py
@@ -171,15 +171,18 @@ MahJong_RLAI/
 ├── rl_train/             # Reinforcement learning training scripts
 │   ├── train_discard_rl.py    #  REINFORCE
 │   └── train_discard_ppo.py   #  PPO + Oracle Guiding
-├── online_game/          # Online play
-│   ├── server.py         #   Game server
+├── online_game/          #   Online play
+│   ├── server
+|   |   ├── server.cpp    #   Game server
 │   ├── client.py         #   CLI client
-│   └── web_client/       #   Web client (Phaser 3 + WebSocket)
-│       ├── index.html
-│       ├── js/src/       #   Rendering logic / networking
-│       ├── img/          #   Tile textures
-│       └── audio/        #   Sound effects
-├── check.py              # CUDA availability check
+│   └── mah-jong/         #   Godot project for client
+|       ├──anim/          #   Animations
+|       ├──audio/         #   Audio Files
+|       ├──export/        #   Export Files
+|       ├──img            #   Images
+|       ├──Scenes         #   Godot Scenes
+|       └──Scrpits        #   GD Scripts or C# Scripts
+├── check.py              #   CUDA availability check
 └── requirements.txt
 ```
 

@@ -172,14 +172,17 @@ MahJong_RLAI/
 ├── rl_train/             # 强化学习训练脚本
 │   ├── train_discard_rl.py    #  REINFORCE
 │   └── train_discard_ppo.py   #  PPO + Oracle Guiding
-├── online_game/          # 在线对战
-│   ├── server.py         #   游戏服务端
+├── online_game/          #   在线游玩
+│   ├── server
+|   |   ├── server.cpp    #   游戏服务端
 │   ├── client.py         #   命令行客户端
-│   └── web_client/       #   网页客户端（Phaser 3 + WebSocket）
-│       ├── index.html
-│       ├── js/src/       #   渲染逻辑 / 网络通信
-│       ├── img/          #   麻将牌贴图
-│       └── audio/        #   音效
+│   └── mah-jong/         #   Godot客户端
+|       ├──anim/          #   动画
+|       ├──audio/         #   音频文件
+|       ├──export/        #   导出文件
+|       ├──img            #   图像文件
+|       ├──Scenes         #   Godot 场景
+|       └──Scrpits        #   GD Scripts 和 C# Scripts
 ├── check.py              # 检测 CUDA 可用性
 └── requirements.txt
 ```

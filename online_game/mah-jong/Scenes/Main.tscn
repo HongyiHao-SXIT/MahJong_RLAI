@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://clyvol5rbc17n"]
+
+[ext_resource type="Texture2D" uid="uid://cko6ojg0ynw0x" path="res://img/background2d.png" id="1_r150o"]
+[ext_resource type="Script" uid="uid://d0tjuxva04yv3" path="res://Scripts/GameManager.gd" id="2_idj7w"]
+
+[node name="Node2D" type="Node2D" unique_id=90990355]
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=147672064]
+
+[node name="Background" type="Sprite2D" parent="." unique_id=1276920901]
+position = Vector2(1.000061, -1)
+scale = Vector2(1.475641, 0.825641)
+texture = ExtResource("1_r150o")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=368941221]
+
+[node name="Label" type="Label" parent="CanvasLayer" unique_id=297225468]
+offset_right = 40.0
+offset_bottom = 23.0
+text = "TEST DEMO
+NOT FOR PROFIT"
+
+[node name="GameManager" type="Node" parent="." unique_id=1327827222]
+script = ExtResource("2_idj7w")

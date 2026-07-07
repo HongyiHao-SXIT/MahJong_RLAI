@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://cm82wh7jv42qy"]
+
+[ext_resource type="SpriteFrames" uid="uid://btdrd8l0yccac" path="res://anim/MahJong.tres" id="1_2kpp0"]
+
+[node name="MahJong" type="AnimatedSprite2D" unique_id=160165951]
+sprite_frames = ExtResource("1_2kpp0")
+animation = &"baiban"
