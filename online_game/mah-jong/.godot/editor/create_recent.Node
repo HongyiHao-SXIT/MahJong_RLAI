@@ -1,4 +1,7 @@
 Node
+LineEdit
+TextEdit
+Button
 Label
 AnimatedSprite2D
 Camera2D

@@ -1,5 +1,5 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1783399478
+::res://::1783431835
 export_presets.cfg::TextFile::-1::1783399002::0::1::::<><><>0<>0<><>::
 icon.svg::CompressedTexture2D::5374088674540654251::1783397655::1783397664::1::::<><><>0<>0<>e9c6cbfcd3444737bb36bcb7d7e81cf7<>res://.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.ctex::
 ::res://anim/::1783398837
@@ -35,8 +35,8 @@ vieww300097.png::CompressedTexture2D::3837354973569266543::1783397737::178339773
 vieww400117.png::CompressedTexture2D::5553071634166741918::1783397737::1783397738::1::::<><><>0<>0<>a81626b06f0f8cb1f8dc3685eecdc709<>res://.godot/imported/vieww400117.png-9bd110cde0705bd9678d25fa72759294.ctex::
 vieww548057.png::CompressedTexture2D::7870218875465119995::1783397737::1783397737::1::::<><><>0<>0<>76a4a24ce1ef51728992c129da115404<>res://.godot/imported/vieww548057.png-3624efe7209821976bf7c0d0ec3558b5.ctex::
 vieww748057.png::CompressedTexture2D::2965934659197358152::1783397737::1783397737::1::::<><><>0<>0<>7dd138ef3bc5bd6911f73c0adcdaf002<>res://.godot/imported/vieww748057.png-977ac6ba08a3ec3225c330d64971281a.ctex::
-::res://Scenes/::1783399523
-Main.tscn::PackedScene::5595764396339589621::1783399523::0::1::::<><><>0<>0<><>::uid://cko6ojg0ynw0x::::res://img/background2d.png
+::res://Scenes/::1783399655
 MahJong.tscn::PackedScene::5684911020732511356::1783398837::0::1::::<><><>0<>0<><>::uid://btdrd8l0yccac::::res://anim/MahJong.tres
-::res://Scripts/::1783399574
-GameManager_onload.gd::GDScript::8953789728682767358::1783399567::0::1::::<>Node<><>0<>0<><>::
+Main.tscn::PackedScene::5595764396339589621::1783399655::0::1::::<><><>0<>0<><>::uid://cko6ojg0ynw0x::::res://img/background2d.png<>uid://d0tjuxva04yv3::::res://Scripts/GameManager.gd
+::res://Scripts/::1783399643
+GameManager.gd::GDScript::8953789728682767358::1783399643::0::1::::<>Node<><>0<>0<><>::

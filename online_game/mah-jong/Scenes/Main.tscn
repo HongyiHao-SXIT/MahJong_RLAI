@@ -2,23 +2,86 @@
 
 [ext_resource type="Texture2D" uid="uid://cko6ojg0ynw0x" path="res://img/background2d.png" id="1_r150o"]
 [ext_resource type="Script" uid="uid://d0tjuxva04yv3" path="res://Scripts/GameManager.gd" id="2_idj7w"]
+[ext_resource type="Script" uid="uid://2b623xfctc0n" path="res://Scripts/MulitPlayer.gd" id="2_kln2b"]
 
 [node name="Node2D" type="Node2D" unique_id=90990355]
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=147672064]
 
 [node name="Background" type="Sprite2D" parent="." unique_id=1276920901]
-position = Vector2(1.000061, -1)
-scale = Vector2(1.475641, 0.825641)
+position = Vector2(224.00002, 0.9999999)
+scale = Vector2(0.9025641, 0.8294872)
 texture = ExtResource("1_r150o")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=368941221]
 
-[node name="Label" type="Label" parent="CanvasLayer" unique_id=297225468]
+[node name="DEMO" type="Label" parent="CanvasLayer" unique_id=297225468]
 offset_right = 40.0
 offset_bottom = 23.0
 text = "TEST DEMO
 NOT FOR PROFIT"
 
+[node name="server" type="Label" parent="CanvasLayer" unique_id=1591801614]
+offset_left = 1.0
+offset_top = 96.0
+offset_right = 130.0
+offset_bottom = 145.0
+text = "SERVER :"
+
+[node name="Server Address" type="LineEdit" parent="CanvasLayer/server" unique_id=123878620]
+layout_mode = 0
+offset_left = 67.0
+offset_right = 204.0
+offset_bottom = 31.000008
+scale = Vector2(0.87211263, 0.79999936)
+placeholder_text = "ServerAddress"
+expand_to_text_length = true
+backspace_deletes_composite_character_enabled = true
+clear_button_enabled = true
+draw_control_chars = true
+select_all_on_focus = true
+
+[node name="port" type="Label" parent="CanvasLayer" unique_id=269939464]
+offset_left = 1.0
+offset_top = 127.0
+offset_right = 130.0
+offset_bottom = 176.0
+text = "PORT :"
+
+[node name="Port" type="LineEdit" parent="CanvasLayer/port" unique_id=442860489]
+layout_mode = 0
+offset_left = 67.0
+offset_right = 204.0
+offset_bottom = 31.000008
+scale = Vector2(0.87211263, 0.79999936)
+placeholder_text = "Port"
+expand_to_text_length = true
+backspace_deletes_composite_character_enabled = true
+clear_button_enabled = true
+draw_control_chars = true
+select_all_on_focus = true
+
+[node name="Connect" type="Button" parent="CanvasLayer" unique_id=206508292]
+offset_left = 55.0
+offset_top = 184.0
+offset_right = 127.0
+offset_bottom = 215.0
+text = "Connect"
+
+[node name="Create_Server" type="Button" parent="CanvasLayer" unique_id=1955374222]
+offset_left = 31.0
+offset_top = 224.0
+offset_right = 158.0
+offset_bottom = 255.0
+text = "Create a Server"
+
+[node name="MulitPlayer" type="Node" parent="." unique_id=43544148 node_paths=PackedStringArray("Server_Address", "Server_Port")]
+script = ExtResource("2_kln2b")
+Server_Address = NodePath("../CanvasLayer/server/Server Address")
+Server_Port = NodePath("../CanvasLayer/port/Port")
+
 [node name="GameManager" type="Node" parent="." unique_id=1327827222]
 script = ExtResource("2_idj7w")
+
+[connection signal="button_down" from="CanvasLayer/Connect" to="MulitPlayer" method="_on_connect_button_down"]
+[connection signal="button_down" from="CanvasLayer/Create_Server" to="MulitPlayer" method="_on_create_server_button_down"]
