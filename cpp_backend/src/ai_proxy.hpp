@@ -1,7 +1,10 @@
-#pragma once
+#ifndef AI_PROXY_HPP
+#define AI_PROXY_HPP
 // AI Proxy — communicates with Python AI engine via TCP/pipe
 
 #include "json.hpp"
+#include "log.hpp"
+#include "agent.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -139,3 +142,5 @@ private:
         return candidates[rand() % candidates.size()];
     }
 };
+
+#endif // AI_PROXY_HPP
