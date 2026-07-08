@@ -1,6 +1,7 @@
 .vscode/
 .idea/
 *.log
+*.cache
 model/saved/
 model/__pycache__/
 .pytest_cache/

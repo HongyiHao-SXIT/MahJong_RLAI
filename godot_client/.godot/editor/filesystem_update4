@@ -1,0 +1,4 @@
+res://Scripts/game/GameState.gd
+res://Scripts/network/Protocol.gd
+res://Scripts/network/WebSocketClient.gd
+res://Scripts/Main.gd

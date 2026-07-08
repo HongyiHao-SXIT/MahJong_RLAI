@@ -1,0 +1,214 @@
+[gd_scene load_steps=2 format=3 uid="uid://clyvol5rbc17n"]
+
+[ext_resource type="Script" path="res://Scripts/Main.gd" id="1_main"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_main")
+
+[node name="MenuPanel" type="Panel" parent="."]
+layout_mode = 0
+offset_left = 200.0
+offset_top = 150.0
+offset_right = 600.0
+offset_bottom = 480.0
+
+[node name="VBox" type="VBoxContainer" parent="MenuPanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 390.0
+offset_bottom = 320.0
+
+[node name="Title" type="Label" parent="MenuPanel/VBox"]
+layout_mode = 2
+text = "MahJong RLAI"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 36
+
+[node name="Subtitle" type="Label" parent="MenuPanel/VBox"]
+layout_mode = 2
+text = "立直麻将 - C++ WebSocket 后端"
+horizontal_alignment = 1
+
+[node name="Sep1" type="HSeparator" parent="MenuPanel/VBox"]
+layout_mode = 2
+
+[node name="AddrHBox" type="HBoxContainer" parent="MenuPanel/VBox"]
+layout_mode = 2
+
+[node name="AddrLabel" type="Label" parent="MenuPanel/VBox/AddrHBox"]
+layout_mode = 2
+text = "Server:"
+
+[node name="ServerAddress" type="LineEdit" parent="MenuPanel/VBox/AddrHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "127.0.0.1"
+
+[node name="PortHBox" type="HBoxContainer" parent="MenuPanel/VBox"]
+layout_mode = 2
+
+[node name="PortLabel" type="Label" parent="MenuPanel/VBox/PortHBox"]
+layout_mode = 2
+text = "Port:"
+
+[node name="ServerPort" type="LineEdit" parent="MenuPanel/VBox/PortHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "9999"
+
+[node name="UserHBox" type="HBoxContainer" parent="MenuPanel/VBox"]
+layout_mode = 2
+
+[node name="UserLabel" type="Label" parent="MenuPanel/VBox/UserHBox"]
+layout_mode = 2
+text = "Name:"
+
+[node name="Username" type="LineEdit" parent="MenuPanel/VBox/UserHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Player1"
+
+[node name="ConnectBtn" type="Button" parent="MenuPanel/VBox"]
+layout_mode = 2
+text = "Connect"
+
+[node name="Status" type="Label" parent="MenuPanel/VBox"]
+layout_mode = 2
+text = ""
+horizontal_alignment = 1
+
+[node name="GamePanel" type="Panel" parent="."]
+visible = false
+layout_mode = 0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 795.0
+offset_bottom = 595.0
+
+[node name="RoundLabel" type="Label" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 400.0
+offset_bottom = 36.0
+text = "東1局 0本場"
+theme_override_font_sizes/font_size = 20
+
+[node name="DoraLabel" type="Label" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 40.0
+offset_right = 400.0
+offset_bottom = 66.0
+text = "宝牌: --"
+theme_override_font_sizes/font_size = 16
+
+[node name="LeftNumLabel" type="Label" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 70.0
+offset_right = 200.0
+offset_bottom = 96.0
+text = "余牌: 0"
+
+[node name="ScoresPanel" type="Panel" parent="GamePanel"]
+layout_mode = 0
+offset_left = 620.0
+offset_top = 10.0
+offset_right = 785.0
+offset_bottom = 180.0
+
+[node name="Score0" type="Label" parent="GamePanel/ScoresPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 160.0
+offset_bottom = 25.0
+text = "東家: --"
+
+[node name="Score1" type="Label" parent="GamePanel/ScoresPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 30.0
+offset_right = 160.0
+offset_bottom = 50.0
+text = "南家: --"
+
+[node name="Score2" type="Label" parent="GamePanel/ScoresPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 55.0
+offset_right = 160.0
+offset_bottom = 75.0
+text = "西家: --"
+
+[node name="Score3" type="Label" parent="GamePanel/ScoresPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 80.0
+offset_right = 160.0
+offset_bottom = 100.0
+text = "北家: --"
+
+[node name="OpponentsPanel" type="Panel" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 100.0
+offset_right = 600.0
+offset_bottom = 260.0
+
+[node name="OppInfo" type="Label" parent="GamePanel/OpponentsPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 585.0
+offset_bottom = 155.0
+text = "等待其他玩家..."
+
+[node name="HandPanel" type="Panel" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 440.0
+offset_right = 790.0
+offset_bottom = 520.0
+
+[node name="HandLabel" type="Label" parent="GamePanel/HandPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 80.0
+offset_bottom = 25.0
+text = "手牌:"
+
+[node name="HandTiles" type="HBoxContainer" parent="GamePanel/HandPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 30.0
+offset_right = 775.0
+offset_bottom = 75.0
+
+[node name="ActionPanel" type="Panel" parent="GamePanel"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 530.0
+offset_right = 790.0
+offset_bottom = 590.0
+
+[node name="ActionLabel" type="Label" parent="GamePanel/ActionPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 5.0
+offset_right = 775.0
+offset_bottom = 25.0
+
+[node name="ActionButtons" type="HBoxContainer" parent="GamePanel/ActionPanel"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = 25.0
+offset_right = 775.0
+offset_bottom = 55.0

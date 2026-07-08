@@ -1,0 +1,15 @@
+63f7b34db8d8cdea90c76aacccf841ec
+::res://::1783519515
+::res://anim/::1783519131
+::res://audio/::1783519131
+::res://Scenes/::1783519178
+Main.tscn::PackedScene::-1::1783519224::0::1::::<><><>0<>0<><>::res://Scripts/Main.gd
+::res://Scripts/::1783519205
+Main.gd::GDScript::8386712229626002460::1783519205::0::1::::<>Node2D<><>0<>0<><>::
+::res://Scripts/game/::1783519171
+GameState.gd::GDScript::5437360949571577795::1783519171::0::1::::<>Node<><>0<>0<><>::
+::res://Scripts/network/::1783519156
+Protocol.gd::GDScript::1343485324770738035::1783519156::0::1::::<>Node<><>0<>0<><>::
+WebSocketClient.gd::GDScript::6538241574695523064::1783519145::0::1::::<>Node<><>0<>0<><>::
+::res://Scripts/ui/::1783519131
+::res://tiles/::1783519131
