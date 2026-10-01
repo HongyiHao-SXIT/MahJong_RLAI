@@ -6,6 +6,7 @@
 #include "log.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
@@ -39,6 +40,13 @@ public:
             q.push(std::move(item));
             cv.notify_one();
         }
+    }
+
+    // Used for terminal events (e.g. disconnect) that must wake blocked waiters.
+    void force_put(T item) {
+        std::lock_guard<std::mutex> lk(mtx);
+        q.push(std::move(item));
+        cv.notify_one();
     }
 
     T get() {

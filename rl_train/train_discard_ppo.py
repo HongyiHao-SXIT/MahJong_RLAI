@@ -3,12 +3,20 @@ import asyncio
 import os
 import random
 import sys
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
+import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.distributions import Categorical
 from torch.optim import Adam
+
+from tianshou.algorithm.modelfree.ppo import PPO
+from tianshou.algorithm.modelfree.reinforce import ProbabilisticActorPolicy
+from tianshou.algorithm.optim import AdamOptimizerFactory
+from tianshou.data import Batch, ReplayBuffer
+from tianshou.utils.net.common import AbstractDiscreteActor
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from model.models import DiscardModel
@@ -26,11 +34,29 @@ class ValueNet(nn.Module):
             nn.Flatten(),
             nn.Linear(64 * 34, 256),
             nn.ReLU(inplace=True),
-            nn.Linear(256, 1)
+            nn.Linear(256, 1),
         )
 
     def forward(self, x):
         return self.layers(x)
+
+
+class DiscardActorAdapter(AbstractDiscreteActor):
+    """Adapter to expose DiscardModel as a Tianshou discrete actor."""
+
+    def __init__(self, model: nn.Module, action_dim: int = 34):
+        super().__init__(action_dim)
+        self.model = model
+
+    def get_preprocess_net(self):
+        return self.model
+
+    def forward(self, obs, state=None, info=None):
+        if isinstance(obs, Batch):
+            obs = obs.obs
+        obs = torch.as_tensor(obs, dtype=torch.float32, device=next(self.model.parameters()).device)
+        logits = self.model(obs)
+        return logits, state
 
 
 def set_seed(seed: int) -> None:
@@ -39,16 +65,6 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-
-def discounted_returns(rewards: List[float], gamma: float) -> List[float]:
-    ret = 0.0
-    returns = []
-    for reward in reversed(rewards):
-        ret = reward + gamma * ret
-        returns.append(ret)
-    returns.reverse()
-    return returns
 
 
 async def play_one_episode(env: GameEnvironment):
@@ -81,187 +97,194 @@ async def play_one_episode(env: GameEnvironment):
     return env.collected_data
 
 
-def build_training_batch(collected_data, gamma: float):
-    states: List[np.ndarray] = []
-    actions: List[int] = []
-    returns_all: List[float] = []
-    episode_rewards: List[float] = []
-    oracle_states: List[Optional[np.ndarray]] = []
+def _extract_player_rollout(
+    player_records: Sequence[List],
+) -> Tuple[List[np.ndarray], List[int], List[float], List[np.ndarray], List[bool], List[bool], List[Optional[np.ndarray]]]:
+    valid_items = [item for item in player_records if len(item) >= 3 and np.isscalar(item[-1])]
+    if not valid_items:
+        return [], [], [], [], [], [], []
+
+    obs_list: List[np.ndarray] = []
+    act_list: List[int] = []
+    rew_list: List[float] = []
+    obs_next_list: List[np.ndarray] = []
+    terminated_list: List[bool] = []
+    truncated_list: List[bool] = []
+    oracle_list: List[Optional[np.ndarray]] = []
+
+    for idx, item in enumerate(valid_items):
+        state = np.asarray(item[0], dtype=np.float32)
+        action = int(item[1])
+        reward = float(item[-1])
+        oracle_state = item[2] if len(item) >= 4 else None
+
+        if idx + 1 < len(valid_items):
+            next_state = np.asarray(valid_items[idx + 1][0], dtype=np.float32)
+            terminated = False
+        else:
+            next_state = state
+            terminated = True
+
+        obs_list.append(state)
+        act_list.append(action)
+        rew_list.append(reward)
+        obs_next_list.append(next_state)
+        terminated_list.append(terminated)
+        truncated_list.append(False)
+        oracle_list.append(np.asarray(oracle_state, dtype=np.float32) if oracle_state is not None else None)
+
+    return obs_list, act_list, rew_list, obs_next_list, terminated_list, truncated_list, oracle_list
+
+
+def build_training_batch(collected_data):
+    obs_all: List[np.ndarray] = []
+    act_all: List[int] = []
+    rew_all: List[float] = []
+    obs_next_all: List[np.ndarray] = []
+    terminated_all: List[bool] = []
+    truncated_all: List[bool] = []
+    oracle_states_all: List[Optional[np.ndarray]] = []
 
     for player_records in collected_data.values():
-        rewards = [float(item[-1]) for item in player_records if len(item) >= 3 and np.isscalar(item[-1])]
-        if not rewards:
-            continue
-        player_returns = discounted_returns(rewards, gamma)
+        obs, act, rew, obs_next, terminated, truncated, oracle_states = _extract_player_rollout(player_records)
+        obs_all.extend(obs)
+        act_all.extend(act)
+        rew_all.extend(rew)
+        obs_next_all.extend(obs_next)
+        terminated_all.extend(terminated)
+        truncated_all.extend(truncated)
+        oracle_states_all.extend(oracle_states)
 
-        idx = 0
-        for item in player_records:
-            if len(item) < 3 or not np.isscalar(item[-1]):
-                continue
-            state = item[0]
-            action = item[1]
-            reward = item[-1]
-            oracle_state = item[2] if len(item) >= 4 else None
+    if not obs_all:
+        return None
 
-            states.append(state)
-            actions.append(int(action))
-            returns_all.append(float(player_returns[idx]))
-            episode_rewards.append(float(reward))
-            oracle_states.append(oracle_state)
-            idx += 1
+    has_oracle = len(oracle_states_all) > 0 and all(item is not None for item in oracle_states_all)
+    oracle_np = np.asarray(oracle_states_all, dtype=np.float32) if has_oracle else None
 
-    if not states:
-        return None, None, None, None, 0.0
-
-    states_np = np.asarray(states, dtype=np.float32)
-    actions_np = np.asarray(actions, dtype=np.int64)
-    returns_np = np.asarray(returns_all, dtype=np.float32)
-
-    has_oracle = len(oracle_states) > 0 and all(item is not None for item in oracle_states)
-    oracle_np = np.asarray(oracle_states, dtype=np.float32) if has_oracle else None
-
-    mean_reward = float(np.mean(episode_rewards)) if episode_rewards else 0.0
-    return states_np, actions_np, returns_np, oracle_np, mean_reward
+    return {
+        'obs': np.asarray(obs_all, dtype=np.float32),
+        'act': np.asarray(act_all, dtype=np.int64),
+        'rew': np.asarray(rew_all, dtype=np.float32),
+        'obs_next': np.asarray(obs_next_all, dtype=np.float32),
+        'terminated': np.asarray(terminated_all, dtype=np.bool_),
+        'truncated': np.asarray(truncated_all, dtype=np.bool_),
+        'oracle_obs': oracle_np,
+        'mean_reward': float(np.mean(rew_all)) if rew_all else 0.0,
+    }
 
 
-def ppo_update(
-    actor,
-    critic,
-    actor_optimizer,
-    critic_optimizer,
-    states,
-    actions,
-    returns,
-    device,
+def make_replay_buffer(batch_data: Dict[str, np.ndarray]) -> ReplayBuffer:
+    n = int(batch_data['obs'].shape[0])
+    buffer = ReplayBuffer(size=max(1, n))
+    rollout_batch = Batch(
+        obs=batch_data['obs'],
+        act=batch_data['act'],
+        rew=batch_data['rew'],
+        terminated=batch_data['terminated'],
+        truncated=batch_data['truncated'],
+        obs_next=batch_data['obs_next'],
+        info=Batch(),
+    )
+    buffer.add(cast(Any, rollout_batch))
+    return buffer
+
+
+def build_tianshou_ppo(
+    actor_model: nn.Module,
+    critic_model: nn.Module,
+    actor_lr: float,
+    gamma: float,
     clip_eps: float,
     entropy_coef: float,
     max_grad_norm: float,
-    ppo_epochs: int,
+    gae_lambda: float,
+    obs_shape: Tuple[int, ...],
+    action_dim: int,
+) -> PPO:
+    actor_model.train()
+    critic_model.train()
+
+    actor = DiscardActorAdapter(actor_model, action_dim=action_dim)
+    policy = ProbabilisticActorPolicy(
+        actor=actor,
+        dist_fn=lambda logits: Categorical(logits=logits),
+        deterministic_eval=False,
+        action_space=gym.spaces.Discrete(action_dim),
+        observation_space=gym.spaces.Box(low=-np.inf, high=np.inf, shape=obs_shape, dtype=np.float32),
+        action_scaling=False,
+    )
+
+    ppo = PPO(
+        policy=policy,
+        critic=critic_model,
+        optim=AdamOptimizerFactory(lr=actor_lr),
+        eps_clip=clip_eps,
+        vf_coef=0.5,
+        ent_coef=entropy_coef,
+        max_grad_norm=max_grad_norm,
+        gae_lambda=gae_lambda,
+        max_batchsize=2048,
+        gamma=gamma,
+        advantage_normalization=True,
+    )
+    return ppo
+
+
+def run_ppo_update(ppo: PPO, batch_data: Dict[str, np.ndarray], repeat: int, mini_batch_size: int) -> Dict[str, float]:
+    buffer = make_replay_buffer(batch_data)
+    stats = ppo.update(buffer=buffer, batch_size=mini_batch_size, repeat=repeat)
+    loss_stats = stats.get_loss_stats_dict()
+    return {
+        'actor_loss': float(loss_stats.get('actor_loss', 0.0)),
+        'critic_loss': float(loss_stats.get('vf_loss', 0.0)),
+        'entropy': float(loss_stats.get('ent_loss', 0.0)),
+        'samples': int(batch_data['obs'].shape[0]),
+    }
+
+
+def apply_oracle_guiding(
+    actor_model: nn.Module,
+    oracle_model: nn.Module,
+    actor_optimizer: Adam,
+    obs: np.ndarray,
+    oracle_obs: np.ndarray,
+    coef: float,
     mini_batch_size: int,
-    oracle_actor=None,
-    oracle_optimizer=None,
-    oracle_states=None,
-    oracle_guiding_coef: float = 0.0
-):
-    features = torch.from_numpy(states).to(device)
-    labels = torch.from_numpy(actions).to(device)
-    rets = torch.from_numpy(returns).to(device)
+) -> float:
+    if coef <= 0 or oracle_obs is None:
+        return 0.0
 
-    oracle_features = None
-    if oracle_actor is not None and oracle_states is not None:
-        oracle_features = torch.from_numpy(oracle_states).to(device)
-
-    with torch.no_grad():
-        old_logits = actor(features)
-        old_log_probs = torch.log_softmax(old_logits, dim=1).gather(1, labels.unsqueeze(1)).squeeze(1)
-        values = critic(features).squeeze(1)
-
-        old_oracle_log_probs = None
-        if oracle_actor is not None and oracle_features is not None:
-            old_oracle_logits = oracle_actor(oracle_features)
-            old_oracle_log_probs = torch.log_softmax(old_oracle_logits, dim=1).gather(1, labels.unsqueeze(1)).squeeze(1)
-
-    advantages = rets - values
-    if advantages.numel() > 1:
-        advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-6)
-
-    n = len(features)
+    device = next(actor_model.parameters()).device
+    obs_tensor = torch.from_numpy(obs).to(device)
+    oracle_tensor = torch.from_numpy(oracle_obs).to(device)
+    n = obs_tensor.shape[0]
     mini_batch_size = min(max(1, mini_batch_size), n)
 
-    actor_losses = []
-    critic_losses = []
-    entropies = []
-    guiding_losses = []
-    oracle_losses = []
+    actor_model.train()
+    oracle_model.eval()
 
-    actor.train()
-    critic.train()
-    if oracle_actor is not None:
-        oracle_actor.train()
+    losses: List[float] = []
+    perm = torch.randperm(n, device=device)
+    for start in range(0, n, mini_batch_size):
+        idx = perm[start: start + mini_batch_size]
+        mb_obs = obs_tensor[idx]
+        mb_oracle_obs = oracle_tensor[idx]
 
-    for _ in range(ppo_epochs):
-        perm = torch.randperm(n, device=device)
-        for start in range(0, n, mini_batch_size):
-            idx = perm[start: start + mini_batch_size]
+        logits = actor_model(mb_obs)
+        log_probs = torch.log_softmax(logits, dim=1)
+        with torch.no_grad():
+            teacher_prob = torch.softmax(oracle_model(mb_oracle_obs), dim=1)
 
-            mb_features = features[idx]
-            mb_labels = labels[idx]
-            mb_old_log_probs = old_log_probs[idx]
-            mb_advantages = advantages[idx]
-            mb_returns = rets[idx]
+        guiding_loss = torch.nn.functional.kl_div(log_probs, teacher_prob, reduction='batchmean')
+        loss = coef * guiding_loss
 
-            logits = actor(mb_features)
-            log_probs = torch.log_softmax(logits, dim=1)
-            selected_log_probs = log_probs.gather(1, mb_labels.unsqueeze(1)).squeeze(1)
-            ratio = torch.exp(selected_log_probs - mb_old_log_probs)
+        actor_optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(actor_model.parameters(), 1.0)
+        actor_optimizer.step()
+        losses.append(float(guiding_loss.item()))
 
-            surr1 = ratio * mb_advantages
-            surr2 = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * mb_advantages
-            entropy = -(torch.softmax(logits, dim=1) * log_probs).sum(dim=1).mean()
-            actor_loss = -torch.min(surr1, surr2).mean() - entropy_coef * entropy
-
-            guiding_loss = torch.tensor(0.0, device=device)
-            if oracle_actor is not None and oracle_features is not None and oracle_guiding_coef > 0:
-                mb_oracle_features = oracle_features[idx]
-                with torch.no_grad():
-                    teacher_prob = torch.softmax(oracle_actor(mb_oracle_features), dim=1)
-                guiding_loss = torch.nn.functional.kl_div(
-                    log_probs,
-                    teacher_prob,
-                    reduction='batchmean'
-                )
-                actor_loss = actor_loss + oracle_guiding_coef * guiding_loss
-
-            actor_optimizer.zero_grad()
-            actor_loss.backward()
-            torch.nn.utils.clip_grad_norm_(actor.parameters(), max_grad_norm)
-            actor_optimizer.step()
-
-            value = critic(mb_features).squeeze(1)
-            critic_loss = torch.nn.functional.mse_loss(value, mb_returns)
-
-            critic_optimizer.zero_grad()
-            critic_loss.backward()
-            torch.nn.utils.clip_grad_norm_(critic.parameters(), max_grad_norm)
-            critic_optimizer.step()
-
-            if oracle_actor is not None and oracle_features is not None and oracle_optimizer is not None:
-                mb_oracle_features = oracle_features[idx]
-                mb_old_oracle_log_probs = old_oracle_log_probs[idx]
-                oracle_logits = oracle_actor(mb_oracle_features)
-                oracle_log_probs = torch.log_softmax(oracle_logits, dim=1)
-                oracle_selected_log_probs = oracle_log_probs.gather(1, mb_labels.unsqueeze(1)).squeeze(1)
-                oracle_ratio = torch.exp(oracle_selected_log_probs - mb_old_oracle_log_probs)
-                oracle_surr1 = oracle_ratio * mb_advantages
-                oracle_surr2 = torch.clamp(oracle_ratio, 1.0 - clip_eps, 1.0 + clip_eps) * mb_advantages
-                oracle_entropy = -(torch.softmax(oracle_logits, dim=1) * oracle_log_probs).sum(dim=1).mean()
-                oracle_loss = -torch.min(oracle_surr1, oracle_surr2).mean() - entropy_coef * oracle_entropy
-
-                oracle_optimizer.zero_grad()
-                oracle_loss.backward()
-                torch.nn.utils.clip_grad_norm_(oracle_actor.parameters(), max_grad_norm)
-                oracle_optimizer.step()
-
-                oracle_losses.append(float(oracle_loss.item()))
-
-            actor_losses.append(float(actor_loss.item()))
-            critic_losses.append(float(critic_loss.item()))
-            entropies.append(float(entropy.item()))
-            guiding_losses.append(float(guiding_loss.item()))
-
-    actor.eval()
-    critic.eval()
-    if oracle_actor is not None:
-        oracle_actor.eval()
-
-    return {
-        'actor_loss': float(np.mean(actor_losses)) if actor_losses else 0.0,
-        'critic_loss': float(np.mean(critic_losses)) if critic_losses else 0.0,
-        'entropy': float(np.mean(entropies)) if entropies else 0.0,
-        'guiding_loss': float(np.mean(guiding_losses)) if guiding_losses else 0.0,
-        'oracle_loss': float(np.mean(oracle_losses)) if oracle_losses else 0.0,
-        'samples': int(n)
-    }
+    return float(np.mean(losses)) if losses else 0.0
 
 
 def save_actor_checkpoint(actor, episode: int, num_layers: int, in_channels: int, output_path: str):
@@ -271,21 +294,20 @@ def save_actor_checkpoint(actor, episode: int, num_layers: int, in_channels: int
             'state_dict': actor.state_dict(),
             'num_layers': num_layers,
             'in_channels': in_channels,
-            'episode': episode
+            'episode': episode,
         },
-        output_path
+        output_path,
     )
 
 
-def save_critic_checkpoint(critic, critic_optimizer, episode: int, output_path: str):
+def save_critic_checkpoint(critic, episode: int, output_path: str):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     torch.save(
         {
             'state_dict': critic.state_dict(),
             'episode': episode,
-            'optimizer_state': critic_optimizer.state_dict()
         },
-        output_path
+        output_path,
     )
 
 
@@ -293,6 +315,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--episodes', '-e', default=200, type=int)
     parser.add_argument('--gamma', default=0.99, type=float)
+    parser.add_argument('--gae_lambda', default=0.95, type=float)
     parser.add_argument('--actor_lr', default=1e-5, type=float)
     parser.add_argument('--critic_lr', default=2e-4, type=float)
     parser.add_argument('--oracle_lr', default=2e-4, type=float)
@@ -323,9 +346,16 @@ def main():
     if args.use_wandb:
         try:
             import wandb
-            wandb_run = wandb.init(project='Mahjong', name='train-discard-ppo')
+
+            wandb_run = wandb.init(project='Mahjong', name='train-discard-ppo-tianshou')
         except Exception as exc:
             print(f'wandb init failed: {exc}, continue without wandb')
+
+    if abs(args.actor_lr - args.critic_lr) > 1e-12:
+        print(
+            f'[warning] tianshou PPO(2.0) uses a unified optimizer for actor/critic; '
+            f'critic_lr={args.critic_lr} will be ignored, using actor_lr={args.actor_lr}.'
+        )
 
     env = GameEnvironment(
         has_aka=True,
@@ -335,163 +365,207 @@ def main():
         allow_observe=False,
         train=True,
         oracle_guiding=args.oracle_guiding,
-        oracle_hidden_info_mask=args.oracle_hidden_info_mask
+        oracle_hidden_info_mask=args.oracle_hidden_info_mask,
     )
 
     if env.ai_agent is None or env.ai_agent.discard_model is None:
         raise RuntimeError('discard model is not initialized in AI agent')
 
     device = env.ai_agent.device
-    actor = env.ai_agent.discard_model
+    actor_model = env.ai_agent.discard_model
 
     base_params = torch.load(args.base_model_path, map_location=device)
-    actor.load_state_dict(base_params['state_dict'])
-    actor.to(device)
-    actor.eval()
+    actor_model.load_state_dict(base_params['state_dict'])
+    actor_model.to(device)
+    actor_model.eval()
 
     in_channels = int(base_params.get('in_channels', 291))
     num_layers = int(base_params.get('num_layers', 50))
 
-    critic = ValueNet(in_channels=in_channels).to(device)
-    critic.eval()
+    critic_model = ValueNet(in_channels=in_channels).to(device)
 
-    actor_optimizer = Adam(actor.parameters(), lr=args.actor_lr)
-    critic_optimizer = Adam(critic.parameters(), lr=args.critic_lr)
+    ppo = build_tianshou_ppo(
+        actor_model=actor_model,
+        critic_model=critic_model,
+        actor_lr=args.actor_lr,
+        gamma=args.gamma,
+        clip_eps=args.clip_eps,
+        entropy_coef=args.entropy_coef,
+        max_grad_norm=args.max_grad_norm,
+        gae_lambda=args.gae_lambda,
+        obs_shape=(in_channels, 34),
+        action_dim=34,
+    )
 
-    oracle_actor = None
-    oracle_optimizer = None
+    oracle_model = None
+    oracle_ppo = None
+    oracle_guiding_optimizer = None
     oracle_in_channels = None
     if args.oracle_guiding:
         oracle_in_channels = int(env.game.get_feature(0, hidden_info_mask=args.oracle_hidden_info_mask).shape[0])
-        oracle_actor = DiscardModel(in_channels=oracle_in_channels, num_layers=num_layers).to(device)
-        oracle_actor.eval()
-        oracle_optimizer = Adam(oracle_actor.parameters(), lr=args.oracle_lr)
+        oracle_model = DiscardModel(in_channels=oracle_in_channels, num_layers=num_layers).to(device)
+        oracle_critic = ValueNet(in_channels=oracle_in_channels).to(device)
+        oracle_ppo = build_tianshou_ppo(
+            actor_model=oracle_model,
+            critic_model=oracle_critic,
+            actor_lr=args.oracle_lr,
+            gamma=args.gamma,
+            clip_eps=args.clip_eps,
+            entropy_coef=args.entropy_coef,
+            max_grad_norm=args.max_grad_norm,
+            gae_lambda=args.gae_lambda,
+            obs_shape=(oracle_in_channels, 34),
+            action_dim=34,
+        )
+        oracle_guiding_optimizer = Adam(actor_model.parameters(), lr=args.actor_lr)
 
     best_reward = -float('inf')
 
     for episode in range(1, args.episodes + 1):
         trajectories = asyncio.run(play_one_episode(env))
-        states, actions, returns, oracle_states, mean_reward = build_training_batch(trajectories, args.gamma)
+        batch_data = build_training_batch(trajectories)
 
-        if states is None or len(states) == 0:
+        if batch_data is None or batch_data['obs'].shape[0] == 0:
             print(f'[Episode {episode}] no valid samples, skip update')
             env.reset()
             continue
 
-        metrics = ppo_update(
-            actor,
-            critic,
-            actor_optimizer,
-            critic_optimizer,
-            states,
-            actions,
-            returns,
-            device,
-            clip_eps=args.clip_eps,
-            entropy_coef=args.entropy_coef,
-            max_grad_norm=args.max_grad_norm,
-            ppo_epochs=args.ppo_epochs,
+        metrics = run_ppo_update(
+            ppo=ppo,
+            batch_data=batch_data,
+            repeat=args.ppo_epochs,
             mini_batch_size=args.mini_batch_size,
-            oracle_actor=oracle_actor,
-            oracle_optimizer=oracle_optimizer,
-            oracle_states=oracle_states,
-            oracle_guiding_coef=args.oracle_guiding_coef if args.oracle_guiding else 0.0
         )
 
+        oracle_loss = 0.0
+        guiding_loss = 0.0
+        if (
+            oracle_ppo is not None
+            and batch_data['oracle_obs'] is not None
+            and oracle_model is not None
+            and oracle_guiding_optimizer is not None
+        ):
+            oracle_batch = dict(batch_data)
+            oracle_batch['obs'] = batch_data['oracle_obs']
+            oracle_batch['obs_next'] = np.concatenate(
+                [
+                    batch_data['oracle_obs'][1:],
+                    batch_data['oracle_obs'][-1:],
+                ],
+                axis=0,
+            )
+            oracle_metrics = run_ppo_update(
+                ppo=oracle_ppo,
+                batch_data=oracle_batch,
+                repeat=args.ppo_epochs,
+                mini_batch_size=args.mini_batch_size,
+            )
+            oracle_loss = float(oracle_metrics['actor_loss'])
+
+            guiding_loss = apply_oracle_guiding(
+                actor_model=actor_model,
+                oracle_model=oracle_model,
+                actor_optimizer=oracle_guiding_optimizer,
+                obs=batch_data['obs'],
+                oracle_obs=batch_data['oracle_obs'],
+                coef=args.oracle_guiding_coef,
+                mini_batch_size=args.mini_batch_size,
+            )
+
+        mean_reward = float(batch_data['mean_reward'])
         print(
             f"[Episode {episode}] samples={metrics['samples']} "
-            f"mean_reward={mean_reward:.4f} "
+            f'mean_reward={mean_reward:.4f} '
             f"actor_loss={metrics['actor_loss']:.4f} "
             f"critic_loss={metrics['critic_loss']:.4f} "
             f"entropy={metrics['entropy']:.4f} "
-            f"guiding_loss={metrics['guiding_loss']:.4f} "
-            f"oracle_loss={metrics['oracle_loss']:.4f}"
+            f'guiding_loss={guiding_loss:.4f} '
+            f'oracle_loss={oracle_loss:.4f}'
         )
 
         if wandb_run is not None:
-            wandb_run.log({
-                'episode': episode,
-                'samples': metrics['samples'],
-                'mean_reward': mean_reward,
-                'actor_loss': metrics['actor_loss'],
-                'critic_loss': metrics['critic_loss'],
-                'entropy': metrics['entropy'],
-                'guiding_loss': metrics['guiding_loss'],
-                'oracle_loss': metrics['oracle_loss'],
-                'actor_lr': actor_optimizer.param_groups[0]['lr'],
-                'critic_lr': critic_optimizer.param_groups[0]['lr'],
-                'oracle_lr': oracle_optimizer.param_groups[0]['lr'] if oracle_optimizer is not None else 0.0
-            })
+            wandb_run.log(
+                {
+                    'episode': episode,
+                    'samples': metrics['samples'],
+                    'mean_reward': mean_reward,
+                    'actor_loss': metrics['actor_loss'],
+                    'critic_loss': metrics['critic_loss'],
+                    'entropy': metrics['entropy'],
+                    'guiding_loss': guiding_loss,
+                    'oracle_loss': oracle_loss,
+                    'actor_lr': args.actor_lr,
+                    'critic_lr': args.critic_lr,
+                    'oracle_lr': args.oracle_lr if args.oracle_guiding else 0.0,
+                }
+            )
 
         if mean_reward > best_reward:
             best_reward = mean_reward
             save_actor_checkpoint(
-                actor,
+                actor_model,
                 episode,
                 num_layers,
                 in_channels,
-                os.path.join(args.output_dir, 'best.pt')
+                os.path.join(args.output_dir, 'best.pt'),
             )
             save_critic_checkpoint(
-                critic,
-                critic_optimizer,
+                critic_model,
                 episode,
-                os.path.join(args.output_dir, 'best_critic.pt')
+                os.path.join(args.output_dir, 'best_critic.pt'),
             )
-            if oracle_actor is not None and oracle_in_channels is not None:
+            if oracle_model is not None and oracle_in_channels is not None:
                 save_actor_checkpoint(
-                    oracle_actor,
+                    oracle_model,
                     episode,
                     num_layers,
                     oracle_in_channels,
-                    os.path.join(args.output_dir, 'best_oracle.pt')
+                    os.path.join(args.output_dir, 'best_oracle.pt'),
                 )
 
         if episode % args.save_every == 0:
             save_actor_checkpoint(
-                actor,
+                actor_model,
                 episode,
                 num_layers,
                 in_channels,
-                os.path.join(args.output_dir, f'episode_{episode}.pt')
+                os.path.join(args.output_dir, f'episode_{episode}.pt'),
             )
             save_critic_checkpoint(
-                critic,
-                critic_optimizer,
+                critic_model,
                 episode,
-                os.path.join(args.output_dir, f'episode_{episode}_critic.pt')
+                os.path.join(args.output_dir, f'episode_{episode}_critic.pt'),
             )
-            if oracle_actor is not None and oracle_in_channels is not None:
+            if oracle_model is not None and oracle_in_channels is not None:
                 save_actor_checkpoint(
-                    oracle_actor,
+                    oracle_model,
                     episode,
                     num_layers,
                     oracle_in_channels,
-                    os.path.join(args.output_dir, f'episode_{episode}_oracle.pt')
+                    os.path.join(args.output_dir, f'episode_{episode}_oracle.pt'),
                 )
 
         env.reset()
 
     save_actor_checkpoint(
-        actor,
+        actor_model,
         args.episodes,
         num_layers,
         in_channels,
-        os.path.join(args.output_dir, 'final.pt')
+        os.path.join(args.output_dir, 'final.pt'),
     )
     save_critic_checkpoint(
-        critic,
-        critic_optimizer,
+        critic_model,
         args.episodes,
-        os.path.join(args.output_dir, 'final_critic.pt')
+        os.path.join(args.output_dir, 'final_critic.pt'),
     )
-    if oracle_actor is not None and oracle_in_channels is not None:
+    if oracle_model is not None and oracle_in_channels is not None:
         save_actor_checkpoint(
-            oracle_actor,
+            oracle_model,
             args.episodes,
             num_layers,
             oracle_in_channels,
-            os.path.join(args.output_dir, 'final_oracle.pt')
+            os.path.join(args.output_dir, 'final_oracle.pt'),
         )
 
     if wandb_run is not None:

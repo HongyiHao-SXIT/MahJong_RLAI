@@ -15,10 +15,10 @@ if %ERRORLEVEL% EQU 0 (
     echo   build\server.exe -H 0.0.0.0 -P 9999 -A 0 -ob
     echo.
     echo Options:
-    echo   -A N    Number of AI players (0-4)
-    echo   -P N    Port (default: 9999)
+    echo   -A N    Number of AI players (0-4^)
+    echo   -P N    Port (default: 9999^)
     echo   -ob     Allow observers
-    echo   -f      Fast mode (skip delays)
+    echo   -f      Fast mode (skip delays^)
     echo   -d      Debug logging
 ) else (
     echo.

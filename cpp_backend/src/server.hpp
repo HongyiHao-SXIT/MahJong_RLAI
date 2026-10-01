@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -30,12 +31,14 @@ public:
                 if (event == "discard" || event == "decision" || event == "ready" || event == "quit") {
                     m_queue->put(v);
                 }
-            } catch (...) {}
+            } catch (const std::exception& e) {
+                LOG_WARN("Invalid client message json: %s", e.what());
+            }
         };
         ws->on_close = [this]() {
             json::Value quit_msg;
             quit_msg["event"] = "quit";
-            m_queue->put(quit_msg);
+            m_queue->force_put(quit_msg);
         };
     }
 
@@ -143,7 +146,7 @@ public:
 
         m_game_env.send_multiply = [this](GameEnvironment& env, const json::Value& msg,
                                            int except, int except_ob) {
-            std::string data = json::serialize(msg);
+            (void)except_ob;
             for (int i = 0; i < 4; i++) {
                 if (i == except || !env.clients[i]->is_connected()) continue;
                 env.clients[i]->send_json(msg);
@@ -225,17 +228,34 @@ public:
 
     void stop() {
         m_running = false;
+        m_game_env.game_start = false;
+
         if (m_listen_sock != INVALID_SOCKET) {
             closesocket(m_listen_sock);
             m_listen_sock = INVALID_SOCKET;
         }
-        if (m_accept_thread.joinable()) m_accept_thread.join();
-        if (m_main_thread.joinable()) m_main_thread.join();
-        for (auto& client : m_game_env.clients) {
-            if (auto* wsgc = dynamic_cast<WSGameClient*>(client.get())) {
-                wsgc->ws()->close();
+
+        {
+            std::lock_guard<std::mutex> lk(m_mutex);
+            for (auto& client : m_game_env.clients) {
+                if (auto* wsgc = dynamic_cast<WSGameClient*>(client.get())) {
+                    wsgc->ws()->close();
+                }
             }
         }
+
+        if (m_accept_thread.joinable()) m_accept_thread.join();
+        if (m_main_thread.joinable()) m_main_thread.join();
+        if (m_game_thread.joinable()) m_game_thread.join();
+
+        {
+            std::lock_guard<std::mutex> lk(m_client_threads_mutex);
+            for (auto& t : m_client_threads) {
+                if (t.joinable()) t.join();
+            }
+            m_client_threads.clear();
+        }
+
 #ifdef _WIN32
         WSACleanup();
 #endif
@@ -254,15 +274,22 @@ private:
     GameEnvironment m_game_env;
     int m_ai_count;
     std::mutex m_mutex;
+    std::mutex m_client_threads_mutex;
     std::thread m_accept_thread;
     std::thread m_main_thread;
+    std::thread m_game_thread;
+    std::vector<std::thread> m_client_threads;
 
     // Pending handshake buffer for WebSocket connections
     std::map<SOCKET, std::string> m_handshake_buf;
 
     void start_game() {
+        if (m_game_thread.joinable()) {
+            m_game_thread.join();
+        }
+        m_game_env.game_start = true;
         LOG_INFO("Starting game with %zu players", m_game_env.clients.size());
-        std::thread game_thread([this]() {
+        m_game_thread = std::thread([this]() {
             game_main_loop(m_game_env);
             // After game ends: re-add AI clients for next game
             {
@@ -289,7 +316,6 @@ private:
                     existing_humans, m_ai_count);
             }
         });
-        game_thread.detach();
     }
 
     void accept_loop() {
@@ -408,7 +434,6 @@ private:
 
                 // Add player
                 auto game_client = std::make_unique<WSGameClient>(ws, username);
-                auto* raw_ptr = game_client.get();
                 m_game_env.clients.push_back(std::move(game_client));
 
                 json::Value resp;
@@ -418,7 +443,15 @@ private:
                 ws->send_text(json::serialize(resp));
 
                 // Start reading messages from this client in a separate thread
-                std::thread(&MahJongServer::client_read_loop, this, raw_ptr).detach();
+                {
+                    std::lock_guard<std::mutex> thread_lk(m_client_threads_mutex);
+                    m_client_threads.emplace_back(
+                        &MahJongServer::client_read_loop,
+                        this,
+                        ws,
+                        username
+                    );
+                }
 
                 // Broadcast player count
                 json::Value broadcast;
@@ -435,12 +468,11 @@ private:
         }
     }
 
-    void client_read_loop(WSGameClient* client) {
-        auto ws = client->ws();
+    void client_read_loop(std::shared_ptr<WSConnection> ws, std::string username) {
         while (m_running && ws && !ws->closed) {
             if (!ws->process_read()) {
                 // Connection closed
-                LOG_INFO("Player %s disconnected", client->username().c_str());
+                LOG_INFO("Player %s disconnected", username.c_str());
                 break;
             }
         }
