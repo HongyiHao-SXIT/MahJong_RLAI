@@ -11,3 +11,4 @@ model/__pycache__/
 /rl_train/__pycache__/
 /sl_train/__pycache__/
 .vs/
+.DS_Store

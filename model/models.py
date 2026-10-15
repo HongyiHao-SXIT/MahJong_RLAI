@@ -41,9 +41,12 @@ class DiscardModel(nn.Module):
         return x.squeeze(1)
 
 
-class RiichiModel(nn.Module):
+class BinaryDecisionModel(nn.Module):
+    """Suphx head for Riichi / Chow / Pong / Kong: ResNet trunk, 3x1 conv to 32 channels,
+    FC 1024 -> 256 -> 2 logits (index 1 = take the action)."""
+
     def __init__(self, in_channels, num_layers=20):
-        super(RiichiModel, self).__init__()
+        super().__init__()
         self.in_conv = nn.Sequential(
             nn.Conv1d(in_channels, 256, kernel_size=3, padding='same'),
             nn.BatchNorm1d(256),
@@ -53,64 +56,38 @@ class RiichiModel(nn.Module):
             *(ResBlock() for _ in range(num_layers))
         )
         self.out_conv = nn.Sequential(
-            nn.Conv1d(256, 3, kernel_size=1),
-            nn.BatchNorm1d(3),
+            nn.Conv1d(256, 32, kernel_size=3, padding='same'),
+            nn.BatchNorm1d(32),
             nn.LeakyReLU(0.2)
         )
-
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(3 * 34, 1024),
+            nn.Linear(32 * 34, 1024),
             nn.BatchNorm1d(1024),
             nn.LeakyReLU(0.2),
             nn.Linear(1024, 256),
             nn.BatchNorm1d(256),
             nn.LeakyReLU(0.2),
-            nn.Linear(256, 1)
+            nn.Linear(256, 2)
         )
 
     def forward(self, x):
         x = self.in_conv(x)
         x = self.res_blocks(x)
         x = self.out_conv(x)
-        x = self.fc(x)
-        return x
+        return self.fc(x)
+
+    def prob(self, x):
+        """Probability of taking the action, shape (batch,)."""
+        return self.forward(x).softmax(-1)[:, 1]
 
 
-class FuroModel(nn.Module):
-    def __init__(self, in_channels, num_layers=20):
-        super(FuroModel, self).__init__()
-        self.in_conv = nn.Sequential(
-            nn.Conv1d(in_channels, 256, kernel_size=3, padding='same'),
-            nn.BatchNorm1d(256),
-            nn.LeakyReLU(0.2)
-        )
-        self.res_blocks = nn.Sequential(
-            *(ResBlock() for _ in range(num_layers))
-        )
-        self.out_conv = nn.Sequential(
-            nn.Conv1d(256, 3, kernel_size=1),
-            nn.BatchNorm1d(3),
-            nn.LeakyReLU(0.2)
-        )
+class RiichiModel(BinaryDecisionModel):
+    pass
 
-        self.fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(3 * 34, 1024),
-            nn.BatchNorm1d(1024),
-            nn.LeakyReLU(0.2),
-            nn.Linear(1024, 256),
-            nn.BatchNorm1d(256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 1)
-        )
 
-    def forward(self, x):
-        x = self.in_conv(x)
-        x = self.res_blocks(x)
-        x = self.out_conv(x)
-        x = self.fc(x)
-        return x
+class FuroModel(BinaryDecisionModel):
+    pass
 
 
 class RewardPredictor(nn.Module):

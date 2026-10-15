@@ -337,19 +337,22 @@ class GameEnvironment(object):
         kan_actions = []
         pon_feature = None
         action_score_dict = {}
+        kan_ids, riichi_ids, ryuukyoku_ids = [], [], []
 
         for i, action in enumerate(actions):
             if action['type'] == 'agari':
-                if ai_agent.agari_decision(self.agents, action):
-                    action_score_dict[i] = 1
+                if ai_agent.agari_decision(self.agents, action, **self.agari_context(action)):
+                    return action
             elif action['type'] == 'riichi':
                 score = ai_agent.riichi_decision(state)
                 logging.debug(yellow(f'「{self.clients[who].username}」「立直」行为意愿: {score:.3f}'))
                 action_score_dict[i] = score
+                riichi_ids.append(i)
             elif action['type'] == 'ryuukyoku':
                 if action['kyuuhai_type_count'] == 9:
                     if self.agents[who].score >= 100:  # 只有9种9牌且分数没那么低时还是流了吧
                         action_score_dict[i] = 1
+                        ryuukyoku_ids.append(i)
             elif action['type'] == 'pon':
                 pattern = action['pattern']
                 if pon_feature is None:
@@ -386,17 +389,54 @@ class GameEnvironment(object):
             for i, kan_feature in kan_actions:
                 kan_state = np.concatenate([kan_feature, state], axis=0)
                 action_score_dict[i] = score = ai_agent.kan_decision(kan_state)
+                kan_ids.append(i)
                 logging.debug(yellow(f'「{self.clients[who].username}」「杠」行为意愿: {score:.3f}'))
+        if after_tsumo:
+            # Suphx draw flow: win (handled above) -> Kong -> Riichi -> discard
+            for stage in (kan_ids, riichi_ids, ryuukyoku_ids):
+                staged = {i: action_score_dict[i] for i in stage if i in action_score_dict}
+                if staged:
+                    best_i, best_score = max(staged.items(), key=lambda x: x[1])
+                    if best_score >= 0.5:
+                        if not self.fast:
+                            time.sleep(1 + random.random() * 3)
+                        return actions[best_i]
+            return actions[0]
+        # Other-discard flow: Chow / Pong / Kong models each propose, the most confident one wins
         if action_score_dict:
             max_score_action, max_score = max(action_score_dict.items(), key=lambda x: x[1])
             if max_score < 0.5:  # 行为意愿均低于阈值，选择pass
-                if not after_tsumo and not self.fast and random.random() < 0.7:
+                if not self.fast and random.random() < 0.7:
                     time.sleep(1 + random.random() * 3)
                 return actions[0]
             if not self.fast:
                 time.sleep(1 + random.random() * 3)
             return actions[max_score_action]
         return actions[0]
+
+    def agari_context(self, action):
+        """Projected final scores after this win, and whether this is the last round."""
+        who, from_who = action['who'], action['from_who']
+        base = action.get('score', 240)  # unknown score (guaranteed-yaku fast path): assume 1 han 30 fu
+        oya, honba = self.game.oya, self.honba
+        projected = [p.score for p in self.agents]
+        if who == from_who:
+            if who == oya:
+                pay = [(((base * 2) + 90) // 100 + honba)] * 3
+            else:
+                pay = [((base * 2) + 90) // 100 + honba] + [(base + 90) // 100 + honba] * 2
+            payers = [i for i in range(4) if i != who]
+            if who != oya:
+                payers.sort(key=lambda i: i != oya)
+            for i, amount in zip(payers, pay):
+                projected[i] -= amount
+                projected[who] += amount
+        else:
+            amount = ((base * (6 if who == oya else 4)) + 90) // 100 + honba * 3
+            projected[from_who] -= amount
+            projected[who] += amount
+        projected[who] += self.riichi_ba * 10
+        return {'projected_scores': projected, 'last_round': self.round >= 7}
 
     def discard_by_ai(self, who, tiles, banned):
         if self.ai_agent is None:

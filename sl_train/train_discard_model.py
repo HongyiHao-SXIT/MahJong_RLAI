@@ -4,6 +4,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 
 from model.models import DiscardModel
+from mahjong.game import FEATURE_CHANNELS
 from dataset.data import TenhouDataset, TenhouIterableDataset, process_data, collate_fn_discard
 from sl_train.training_utils import split_train_test_by_files
 
@@ -53,7 +54,7 @@ test_set = TenhouDataset(data_dir='data', batch_size=128, mode=mode, target_leng
 num_train_samples = split_train_test_by_files(train_set, test_set, train_ratio=0.8)
 
 num_layers = args.num_layers
-in_channels = 291
+in_channels = FEATURE_CHANNELS
 model = DiscardModel(num_layers=num_layers, in_channels=in_channels)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model.to(device)

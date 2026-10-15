@@ -3,10 +3,11 @@ import torch
 from torch.optim import Adam
 import wandb
 import argparse
-from torch.nn import BCEWithLogitsLoss
+from torch.nn import CrossEntropyLoss
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from model.models import RiichiModel
+from mahjong.game import FEATURE_CHANNELS
 from dataset.data import TenhouDataset, process_data
 from sl_train.training_utils import (
     collect_binary_scores,
@@ -45,16 +46,16 @@ num_train_samples = split_train_test_by_files(train_set, test_set, train_ratio=0
 
 
 num_layers = args.num_layers
-in_channels = 291
+in_channels = FEATURE_CHANNELS
 model = RiichiModel(num_layers=num_layers, in_channels=in_channels)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model.to(device)
 optimizer = Adam(model.parameters())
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=1)
 if args.pos_weight is not None:
-    loss_function = BCEWithLogitsLoss(pos_weight=torch.tensor(args.pos_weight, device=device))
+    loss_function = CrossEntropyLoss(weight=torch.tensor([1.0, float(args.pos_weight)], device=device))
 else:
-    loss_function = BCEWithLogitsLoss()
+    loss_function = CrossEntropyLoss()
 epochs = args.epochs
 
 os.makedirs(f'output/{mode}-model/checkpoints', exist_ok=True)
@@ -64,9 +65,9 @@ for epoch in range(epochs):
         data = train_set()
         if not data:
             break
-        features, labels = process_data(data, label_trans=lambda x: x.float())
+        features, labels = process_data(data, label_trans=lambda x: x.long())
         features, labels = features.to(device), labels.to(device)
-        output = model(features).flatten()
+        output = model(features)
         loss = loss_function(output, labels)
         optimizer.zero_grad()
         loss.backward()

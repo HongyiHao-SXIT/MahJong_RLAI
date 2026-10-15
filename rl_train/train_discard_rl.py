@@ -22,9 +22,11 @@ from tianshou.data import Batch, ReplayBuffer, to_torch, to_torch_as
 from tianshou.data.stats import SequenceSummaryStats
 from tianshou.data.types import BatchWithReturnsProtocol, RolloutBatchProtocol
 from tianshou.utils.net.common import AbstractDiscreteActor
+from tianshou.utils.torch_utils import policy_within_training_step
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from online_game.server import GameEnvironment
+from mahjong.game import FEATURE_CHANNELS
 
 
 class DiscardActorAdapter(AbstractDiscreteActor):
@@ -47,7 +49,8 @@ class DiscardActorAdapter(AbstractDiscreteActor):
 
 
 class EntropyReinforce(Reinforce):
-    """REINFORCE with entropy bonus and optional grad clipping to match previous script behavior."""
+    """Suphx-style policy gradient: importance-sampled objective E[pi_theta/pi_theta' * A] with
+    an entropy bonus whose coefficient follows alpha <- alpha + beta * (H_target - H_mean)."""
 
     def __init__(
         self,
@@ -58,6 +61,10 @@ class EntropyReinforce(Reinforce):
         optim: OptimizerFactory,
         entropy_coef: float,
         max_grad_norm: float,
+        target_entropy: float | None = None,
+        entropy_lr: float = 1e-3,
+        max_entropy_coef: float = 0.1,
+        ratio_clip: float = 3.0,
     ) -> None:
         OnPolicyAlgorithm.__init__(self, policy=policy)
         self.discounted_return_computation = DiscountedReturnComputation(
@@ -66,6 +73,10 @@ class EntropyReinforce(Reinforce):
         )
         self.optim = self._create_optimizer(self.policy, optim, max_grad_norm=max_grad_norm)
         self.entropy_coef = float(entropy_coef)
+        self.target_entropy = target_entropy
+        self.entropy_lr = float(entropy_lr)
+        self.max_entropy_coef = float(max_entropy_coef)
+        self.ratio_clip = float(ratio_clip)
         self.last_policy_loss = 0.0
         self.last_entropy = 0.0
 
@@ -87,6 +98,12 @@ class EntropyReinforce(Reinforce):
         policy_losses: List[float] = []
         entropies: List[float] = []
 
+        # log pi_theta'(a|s): the behaviour policy that generated this batch, frozen before updating
+        with torch.no_grad():
+            old_result = self.policy(batch)
+            old_act = to_torch_as(batch.act, old_result.act)
+            batch.old_log_prob = old_result.dist.log_prob(old_act).reshape(len(old_act), -1).cpu().numpy()
+
         split_batch_size = batch_size or -1
         for _ in range(repeat):
             for minibatch in batch.split(split_batch_size, merge_last=True):
@@ -98,8 +115,10 @@ class EntropyReinforce(Reinforce):
                 if ret.numel() > 1:
                     ret = (ret - ret.mean()) / (ret.std(unbiased=False) + 1e-6)
 
-                log_prob = dist.log_prob(act).reshape(len(ret), -1).transpose(0, 1)
-                policy_loss = -(log_prob * ret).mean()
+                log_prob = dist.log_prob(act).reshape(len(ret), -1)
+                old_log_prob = to_torch(minibatch.old_log_prob, torch.float, log_prob.device).reshape(len(ret), -1)
+                ratio = torch.exp(log_prob - old_log_prob).clamp(max=self.ratio_clip)
+                policy_loss = -(ratio * ret.reshape(-1, 1)).mean()
                 entropy = dist.entropy().mean()
                 loss = policy_loss - self.entropy_coef * entropy
 
@@ -107,6 +126,9 @@ class EntropyReinforce(Reinforce):
                 losses.append(float(loss.item()))
                 policy_losses.append(float(policy_loss.item()))
                 entropies.append(float(entropy.item()))
+                if self.target_entropy is not None:
+                    new_coef = self.entropy_coef + self.entropy_lr * (self.target_entropy - float(entropy.item()))
+                    self.entropy_coef = min(max(new_coef, 0.0), self.max_entropy_coef)
 
         self.last_policy_loss = float(np.mean(policy_losses)) if policy_losses else 0.0
         self.last_entropy = float(np.mean(entropies)) if entropies else 0.0
@@ -222,16 +244,21 @@ def make_replay_buffer(batch_data: Dict[str, np.ndarray | float]) -> ReplayBuffe
     obs = cast(np.ndarray, batch_data['obs'])
     n = int(obs.shape[0])
     buffer = ReplayBuffer(size=max(1, n))
-    rollout_batch = Batch(
-        obs=obs,
-        act=cast(np.ndarray, batch_data['act']),
-        rew=cast(np.ndarray, batch_data['rew']),
-        obs_next=cast(np.ndarray, batch_data['obs_next']),
-        terminated=cast(np.ndarray, batch_data['terminated']),
-        truncated=cast(np.ndarray, batch_data['truncated']),
-        info=Batch(),
-    )
-    buffer.add(cast(Any, rollout_batch))
+    act = cast(np.ndarray, batch_data['act'])
+    rew = cast(np.ndarray, batch_data['rew'])
+    obs_next = cast(np.ndarray, batch_data['obs_next'])
+    terminated = cast(np.ndarray, batch_data['terminated'])
+    truncated = cast(np.ndarray, batch_data['truncated'])
+    for i in range(n):
+        buffer.add(cast(Any, Batch(
+            obs=obs[i],
+            act=act[i],
+            rew=rew[i],
+            obs_next=obs_next[i],
+            terminated=bool(terminated[i]),
+            truncated=bool(truncated[i]),
+            info=Batch(),
+        )))
     return buffer
 
 
@@ -242,6 +269,9 @@ def build_reinforce(
     entropy_coef: float,
     max_grad_norm: float,
     in_channels: int,
+    target_entropy: float | None = None,
+    entropy_lr: float = 1e-3,
+    ratio_clip: float = 3.0,
 ) -> EntropyReinforce:
     actor = DiscardActorAdapter(model=model, action_dim=34)
     policy = ProbabilisticActorPolicy(
@@ -260,6 +290,9 @@ def build_reinforce(
         optim=AdamOptimizerFactory(lr=lr),
         entropy_coef=entropy_coef,
         max_grad_norm=max_grad_norm,
+        target_entropy=target_entropy,
+        entropy_lr=entropy_lr,
+        ratio_clip=ratio_clip,
     )
 
 
@@ -270,7 +303,8 @@ def optimize_policy(
     repeat: int,
 ) -> Tuple[float, float, float]:
     buffer = make_replay_buffer(batch_data)
-    stats = algo.update(buffer=buffer, batch_size=mini_batch_size, repeat=repeat)
+    with policy_within_training_step(algo.policy):
+        stats = algo.update(buffer=buffer, batch_size=mini_batch_size, repeat=repeat)
     loss = float(stats.get_loss_stats_dict().get('loss', 0.0))
     return loss, float(algo.last_policy_loss), float(algo.last_entropy)
 
@@ -296,6 +330,10 @@ def main():
     parser.add_argument('--lr', default=1e-5, type=float)
     parser.add_argument('--entropy_coef', default=1e-3, type=float)
     parser.add_argument('--max_grad_norm', default=1.0, type=float)
+    parser.add_argument('--target_entropy', default=None, type=float,
+                        help='enable dynamic entropy coefficient: alpha += entropy_lr * (target - entropy)')
+    parser.add_argument('--entropy_lr', default=1e-3, type=float)
+    parser.add_argument('--ratio_clip', default=3.0, type=float, help='upper bound on the importance ratio')
     parser.add_argument('--repeat', default=1, type=int)
     parser.add_argument('--mini_batch_size', default=0, type=int)
     parser.add_argument('--save_every', default=10, type=int)
@@ -343,13 +381,16 @@ def main():
     model.eval()
 
     num_layers = int(base_params.get('num_layers', 50))
-    in_channels = int(base_params.get('in_channels', 291))
+    in_channels = int(base_params.get('in_channels', FEATURE_CHANNELS))
 
     algo = build_reinforce(
         model=model,
         lr=args.lr,
         gamma=args.gamma,
         entropy_coef=args.entropy_coef,
+        target_entropy=args.target_entropy,
+        entropy_lr=args.entropy_lr,
+        ratio_clip=args.ratio_clip,
         max_grad_norm=args.max_grad_norm,
         in_channels=in_channels,
     )

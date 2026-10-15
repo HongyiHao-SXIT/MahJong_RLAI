@@ -73,7 +73,7 @@ def collect_binary_scores(
             break
         features, labels = process_data_fn(one_batch, label_trans=label_transform)
         features, labels = features.to(device), labels.to(device)
-        output = model(features).sigmoid().flatten()
+        output = model.prob(features).flatten()
         y_true.extend(labels.tolist())
         y_score.extend(output.tolist())
         print(f"Testing {dataset_size - len(dataset)} / {dataset_size}".center(50, '-'), end='\r')

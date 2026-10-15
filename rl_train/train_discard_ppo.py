@@ -21,6 +21,7 @@ from tianshou.utils.net.common import AbstractDiscreteActor
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from model.models import DiscardModel
 from online_game.server import GameEnvironment
+from mahjong.game import FEATURE_CHANNELS
 
 
 class ValueNet(nn.Module):
@@ -379,7 +380,7 @@ def main():
     actor_model.to(device)
     actor_model.eval()
 
-    in_channels = int(base_params.get('in_channels', 291))
+    in_channels = int(base_params.get('in_channels', FEATURE_CHANNELS))
     num_layers = int(base_params.get('num_layers', 50))
 
     critic_model = ValueNet(in_channels=in_channels).to(device)

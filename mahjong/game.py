@@ -4,6 +4,10 @@ import random
 from .agent import Agent
 from .utils import *
 from .check_agari import is_agari, check_riichi
+from .lookahead import lookahead_feature, LOOKAHEAD_CHANNELS
+
+BASE_FEATURE_CHANNELS = 291
+FEATURE_CHANNELS = BASE_FEATURE_CHANNELS + LOOKAHEAD_CHANNELS
 
 
 if hasattr(random, 'SystemRandom'):
@@ -398,7 +402,7 @@ class MahjongGame(object):
             furo_feature  # 16
         ], axis=0)  # 22
 
-    def get_feature(self, target, hidden_info_mask=0):
+    def get_feature(self, target, hidden_info_mask=0, use_lookahead=True):
         """Oracle Agent能获取的全局信息.
 
         hidden_info_mask=0时返回常规可见信息；>0时返回包含他家手牌与牌山信息的oracle特征。
@@ -451,6 +455,11 @@ class MahjongGame(object):
         ]
         if wall_feature is not None:
             feature_parts.insert(1, wall_feature)
+        if use_lookahead:
+            agent = self.agents[target]
+            visible = copy(self.public_visible_tiles)
+            visible.update(t // 4 for t in agent.tiles)
+            feature_parts.append(lookahead_feature(agent.hand_tile_counter, len(agent.furo), visible))
         features = np.concatenate(feature_parts, axis=0)
         return features
 

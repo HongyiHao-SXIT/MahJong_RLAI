@@ -402,25 +402,31 @@ class AiAgent(object):
         if self.riichi_model is None:
             return True
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.riichi_model(state)[0].sigmoid().item() / self.riichi_threshold / 2
+        return self.riichi_model.prob(state)[0].item() / self.riichi_threshold / 2
 
-    def agari_decision(self, agents, agari_action):
-        return True
+    def agari_decision(self, agents, agari_action, projected_scores=None, last_round=False):
+        """Suphx rule-based win model: always win, unless it is the last round and winning
+        would leave this player ranked last."""
+        if not last_round or projected_scores is None:
+            return True
+        who = agari_action['who']
+        others = [s for i, s in enumerate(projected_scores) if i != who]
+        return projected_scores[who] > min(others)
 
     def chi_decision(self, state):
         if self.chi_model is None:
             return random.random()
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.chi_model(state)[0].sigmoid().item() / self.chi_threshold / 2
+        return self.chi_model.prob(state)[0].item() / self.chi_threshold / 2
 
     def pon_decision(self, state):
         if self.pon_model is None:
             return random.random()
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.pon_model(state)[0].sigmoid().item() / self.pon_threshold / 2
+        return self.pon_model.prob(state)[0].item() / self.pon_threshold / 2
 
     def kan_decision(self, state):
         if self.kan_model is None:
             return random.random()
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.kan_model(state)[0].sigmoid().item() / self.kan_threshold / 2
+        return self.kan_model.prob(state)[0].item() / self.kan_threshold / 2
