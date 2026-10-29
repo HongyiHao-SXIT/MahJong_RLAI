@@ -1,5 +1,10 @@
 # MahJong RLAI —— 后端开发文档
 
+> 旧版后端文档：本文介绍的是 `online_game/Server/server.cpp`。
+> 当前维护的 C++20 WebSocket 服务端位于 [`cpp_backend/`](../../cpp_backend/)，
+> Python 模型服务端位于 [`online_game/server.py`](../server.py)。请以根目录
+> [`README.md`](../../README.md) 为准获取当前安装与运行说明。
+
 ## 一、项目概览
 
 本项目是一个在线日式麻将（立直麻将）对战服务器系统，支持人机对战与在线玩家对战。后端由 **C++ 游戏服务器** 与 **Python AI 引擎** 两部分组成，客户端支持 **Python 终端客户端** 和 **Web 网页客户端**。

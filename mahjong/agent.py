@@ -1,6 +1,7 @@
 from typing import List, Set, Tuple, Dict, Union
 import random
 import os
+from pathlib import Path
 import torch
 import logging
 from collections import OrderedDict
@@ -9,7 +10,10 @@ from .utils import *
 from .check_agari import check_riichi, check_machi, machi, is_agari
 from .display import *
 
-from model.models import DiscardModel, RiichiModel, FuroModel
+from model.checkpoints import load_trusted_checkpoint
+from model.models import DiscardModel, RiichiModel, FuroModel, LegacyBinaryDecisionModel
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Agent(object):
@@ -314,95 +318,88 @@ class AiAgent(object):
 
         self.riichi_threshold = self.chi_threshold = self.pon_threshold = self.kan_threshold = None
 
-        self.load_discard_model('model/saved/discard-model/best.pt')
-        self.load_riichi_model('model/saved/riichi-model/best.pt')
-        self.load_chi_model('model/saved/chi-model/best.pt')
-        self.load_pon_model('model/saved/pon-model/best.pt')
-        self.load_kan_model('model/saved/kan-model/best.pt')
+        self.load_discard_model(PROJECT_ROOT / 'model/saved/discard-model/best.pt')
+        self.load_riichi_model(PROJECT_ROOT / 'model/saved/riichi-model/best.pt')
+        self.load_chi_model(PROJECT_ROOT / 'model/saved/chi-model/best.pt')
+        self.load_pon_model(PROJECT_ROOT / 'model/saved/pon-model/best.pt')
+        self.load_kan_model(PROJECT_ROOT / 'model/saved/kan-model/best.pt')
+
+    @staticmethod
+    def prepare_state(state, model):
+        """Trim only the trailing look-ahead channels for pre-look-ahead checkpoints."""
+        expected_channels = model.in_conv[0].in_channels
+        if state.shape[0] == expected_channels:
+            return state
+        if state.shape[0] - expected_channels == 19:
+            return state[:expected_channels]
+        raise ValueError(
+            f'Model expects {expected_channels} feature channels, but received {state.shape[0]}; '
+            'only the 19-channel legacy look-ahead difference is supported.'
+        )
+
+    def _load_model(self, model_path, model_class, model_attr, *, has_threshold=False):
+        model_path = Path(model_path)
+        if not model_path.is_absolute():
+            model_path = PROJECT_ROOT / model_path
+        if not model_path.is_file():
+            logging.warning('Model checkpoint not found: %s', model_path)
+            return
+
+        params = load_trusted_checkpoint(model_path, map_location=self.device)
+        state_dict = params['state_dict']
+        num_layers = int(params['num_layers'])
+        in_channels = int(params['in_channels'])
+        if model_class is not DiscardModel and state_dict['fc.7.weight'].shape[0] == 1:
+            model = LegacyBinaryDecisionModel(num_layers=num_layers, in_channels=in_channels)
+        else:
+            model = model_class(num_layers=num_layers, in_channels=in_channels)
+        model.load_state_dict(state_dict)
+        model.to(self.device)
+        model.eval()
+        setattr(self, model_attr, model)
+        if has_threshold:
+            setattr(self, f'{model_attr.removesuffix("_model")}_threshold', float(params['threshold']))
+        logging.info('Loaded %s checkpoint: %s', model_attr, model_path)
 
     def load_discard_model(self, model_path):
-        if os.path.isfile(model_path):
-            params = torch.load(model_path, map_location=self.device)
-            state_dict = params['state_dict']
-            num_layers = params['num_layers']
-            in_channels = params['in_channels']
-            self.discard_model = DiscardModel(num_layers=num_layers, in_channels=in_channels)
-            self.discard_model.load_state_dict(state_dict)
-            self.discard_model.to(self.device)
-            self.discard_model.eval()
-            logging.debug(yellow('Discard model loaded'))
+        self._load_model(model_path, DiscardModel, 'discard_model')
 
     def load_riichi_model(self, model_path):
-        if os.path.isfile(model_path):
-            params = torch.load(model_path, map_location=self.device)
-            state_dict = params['state_dict']
-            num_layers = params['num_layers']
-            in_channels = params['in_channels']
-            self.riichi_threshold = params['threshold']
-            self.riichi_model = RiichiModel(num_layers=num_layers, in_channels=in_channels)
-            self.riichi_model.load_state_dict(state_dict)
-            self.riichi_model.to(self.device)
-            self.riichi_model.eval()
-            logging.debug(yellow('Riichi model loaded'))
+        self._load_model(model_path, RiichiModel, 'riichi_model', has_threshold=True)
 
     def load_chi_model(self, model_path):
-        if os.path.isfile(model_path):
-            params = torch.load(model_path, map_location=self.device)
-            state_dict = params['state_dict']
-            num_layers = params['num_layers']
-            in_channels = params['in_channels']
-            self.chi_threshold = params['threshold']
-            self.chi_model = FuroModel(num_layers=num_layers, in_channels=in_channels)
-            self.chi_model.load_state_dict(state_dict)
-            self.chi_model.to(self.device)
-            self.chi_model.eval()
-            logging.debug(yellow('Chi model loaded'))
+        self._load_model(model_path, FuroModel, 'chi_model', has_threshold=True)
 
     def load_pon_model(self, model_path):
-        if os.path.isfile(model_path):
-            params = torch.load(model_path, map_location=self.device)
-            state_dict = params['state_dict']
-            num_layers = params['num_layers']
-            in_channels = params['in_channels']
-            self.pon_threshold = params['threshold']
-            self.pon_model = FuroModel(num_layers=num_layers, in_channels=in_channels)
-            self.pon_model.load_state_dict(state_dict)
-            self.pon_model.to(self.device)
-            self.pon_model.eval()
-            logging.debug(yellow('Pon model loaded'))
+        self._load_model(model_path, FuroModel, 'pon_model', has_threshold=True)
 
     def load_kan_model(self, model_path):
-        if os.path.isfile(model_path):
-            params = torch.load(model_path, map_location=self.device)
-            state_dict = params['state_dict']
-            num_layers = params['num_layers']
-            in_channels = params['in_channels']
-            self.kan_threshold = params['threshold']
-            self.kan_model = FuroModel(num_layers=num_layers, in_channels=in_channels)
-            self.kan_model.load_state_dict(state_dict)
-            self.kan_model.to(self.device)
-            self.kan_model.eval()
-            logging.debug(yellow('Kan model loaded'))
+        self._load_model(model_path, FuroModel, 'kan_model', has_threshold=True)
 
     def discard(self, state, tiles):
         if len(tiles) == 1:
             return tiles[0], 1
         if self.discard_model is None:
             return random.choice(tiles), 1 / len(tiles)
+        state = self.prepare_state(state, self.discard_model)
         state = torch.from_numpy(state).float()[None].to(self.device)
-        output = self.discard_model(state).softmax(1)[0]
+        with torch.inference_mode():
+            output = self.discard_model(state).softmax(1)[0]
         available = list(set([_ // 4 for _ in tiles]))
         prob = output[available]
         pred = available[prob.argmax().item()]
         candidates = [_ for _ in tiles if _ // 4 == pred]
         discard_id = max(candidates)  # 取max可以确保不优先打赤牌（虽然也偶尔有需要优先打赤牌的需求，但可以忽略不计）
-        return discard_id, max(prob)
+        return discard_id, float(prob.max().item())
 
     def riichi_decision(self, state):
         if self.riichi_model is None:
             return True
+        state = self.prepare_state(state, self.riichi_model)
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.riichi_model.prob(state)[0].item() / self.riichi_threshold / 2
+        with torch.inference_mode():
+            probability = self.riichi_model.prob(state)[0].item()
+        return probability / self.riichi_threshold / 2
 
     def agari_decision(self, agents, agari_action, projected_scores=None, last_round=False):
         """Suphx rule-based win model: always win, unless it is the last round and winning
@@ -416,17 +413,26 @@ class AiAgent(object):
     def chi_decision(self, state):
         if self.chi_model is None:
             return random.random()
+        state = self.prepare_state(state, self.chi_model)
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.chi_model.prob(state)[0].item() / self.chi_threshold / 2
+        with torch.inference_mode():
+            probability = self.chi_model.prob(state)[0].item()
+        return probability / self.chi_threshold / 2
 
     def pon_decision(self, state):
         if self.pon_model is None:
             return random.random()
+        state = self.prepare_state(state, self.pon_model)
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.pon_model.prob(state)[0].item() / self.pon_threshold / 2
+        with torch.inference_mode():
+            probability = self.pon_model.prob(state)[0].item()
+        return probability / self.pon_threshold / 2
 
     def kan_decision(self, state):
         if self.kan_model is None:
             return random.random()
+        state = self.prepare_state(state, self.kan_model)
         state = torch.from_numpy(state).float()[None].to(self.device)
-        return self.kan_model.prob(state)[0].item() / self.kan_threshold / 2
+        with torch.inference_mode():
+            probability = self.kan_model.prob(state)[0].item()
+        return probability / self.kan_threshold / 2

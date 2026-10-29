@@ -19,9 +19,12 @@ from tianshou.data import Batch, ReplayBuffer
 from tianshou.utils.net.common import AbstractDiscreteActor
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+from model.checkpoints import load_trusted_checkpoint
 from model.models import DiscardModel
 from online_game.server import GameEnvironment
 from mahjong.game import FEATURE_CHANNELS
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class ValueNet(nn.Module):
@@ -329,9 +332,9 @@ def main():
     parser.add_argument('--mini_batch_size', default=1024, type=int)
     parser.add_argument('--save_every', default=10, type=int)
     parser.add_argument('--seed', default=3407, type=int)
-    parser.add_argument('--base_model_path', default='model/saved/discard-model/best.pt', type=str)
-    parser.add_argument('--reward_model_path', default='model/saved/reward-model/best.pt', type=str)
-    parser.add_argument('--output_dir', default='output/discard-ppo-model/checkpoints', type=str)
+    parser.add_argument('--base_model_path', default=os.path.join(PROJECT_ROOT, 'model/saved/discard-model/best.pt'), type=str)
+    parser.add_argument('--reward_model_path', default=os.path.join(PROJECT_ROOT, 'model/saved/reward-model/best.pt'), type=str)
+    parser.add_argument('--output_dir', default=os.path.join(PROJECT_ROOT, 'output/discard-ppo-model/checkpoints'), type=str)
     parser.add_argument('--oracle_guiding', action='store_true')
     parser.add_argument('--use_wandb', action='store_true')
     args = parser.parse_args()
@@ -367,21 +370,20 @@ def main():
         train=True,
         oracle_guiding=args.oracle_guiding,
         oracle_hidden_info_mask=args.oracle_hidden_info_mask,
+        reward_model_path=args.reward_model_path,
     )
 
-    if env.ai_agent is None or env.ai_agent.discard_model is None:
-        raise RuntimeError('discard model is not initialized in AI agent')
+    if env.ai_agent is None:
+        raise RuntimeError('AI agent is not initialized')
 
     device = env.ai_agent.device
-    actor_model = env.ai_agent.discard_model
-
-    base_params = torch.load(args.base_model_path, map_location=device)
-    actor_model.load_state_dict(base_params['state_dict'])
-    actor_model.to(device)
-    actor_model.eval()
-
+    base_params = load_trusted_checkpoint(args.base_model_path, map_location=device)
     in_channels = int(base_params.get('in_channels', FEATURE_CHANNELS))
     num_layers = int(base_params.get('num_layers', 50))
+    actor_model = DiscardModel(in_channels=in_channels, num_layers=num_layers).to(device)
+    actor_model.load_state_dict(base_params['state_dict'])
+    actor_model.eval()
+    env.ai_agent.discard_model = actor_model
 
     critic_model = ValueNet(in_channels=in_channels).to(device)
 

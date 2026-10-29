@@ -17,6 +17,10 @@
 #include <iostream>
 #include <string>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 static MahJongServer* g_server = nullptr;
 
 void signal_handler(int) {

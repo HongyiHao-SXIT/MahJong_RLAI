@@ -3,6 +3,7 @@ import signal
 import os
 import argparse
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import random
 import numpy as np
@@ -23,6 +24,7 @@ import logging
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from mahjong.game import MahjongGame
 from mahjong.agent import Agent, AiAgent
+from model.checkpoints import load_trusted_checkpoint
 from model.models import RewardPredictor
 from mahjong.utils import *
 from mahjong.yaku import Yaku, YakuList
@@ -87,7 +89,7 @@ class Client(object):
 
 class GameEnvironment(object):
 
-    def __init__(self, has_aka=True, AI_count=0, min_score=0, fast=False, allow_observe=True, train=False, oracle_guiding=False, oracle_hidden_info_mask=1.0):
+    def __init__(self, has_aka=True, AI_count=0, min_score=0, fast=False, allow_observe=True, train=False, oracle_guiding=False, oracle_hidden_info_mask=1.0, reward_model_path=None):
         self.game = MahjongGame(has_aka, is_playback=False)
         self.agents = self.game.agents
         self.round = 0
@@ -114,10 +116,18 @@ class GameEnvironment(object):
         self.oracle_hidden_info_mask = float(oracle_hidden_info_mask)
         if train:
             self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-            params = torch.load('model/saved/reward-model/best.pt', map_location=self.device)
+            reward_model_path = Path(reward_model_path or 'model/saved/reward-model/best.pt')
+            if not reward_model_path.is_absolute():
+                reward_model_path = Path(__file__).resolve().parents[1] / reward_model_path
+            if not reward_model_path.is_file():
+                raise FileNotFoundError(
+                    f'Training mode requires a reward predictor checkpoint: {reward_model_path}'
+                )
+            params = load_trusted_checkpoint(reward_model_path, map_location=self.device)
             self.reward_model = RewardPredictor(74, params['hidden_dims'], params['num_layers'])
             self.reward_model.load_state_dict(params['state_dict'])
             self.reward_model.to(self.device)
+            self.reward_model.eval()
             self.collected_data = defaultdict(list)
             self.reward_features = defaultdict(list)
         for i in range(AI_count):
@@ -126,12 +136,13 @@ class GameEnvironment(object):
     def reward(self, features, i):
         """计算第i轮的reward"""
         features = features.to(self.device)
-        if i == 0:
-            score0 = 250
-            score1 = self.reward_model(features[:, :1, :]).item() * 500
-        else:
-            score0 = self.reward_model(features[:, :i, :]).item() * 500
-            score1 = self.reward_model(features[:, :i + 1, :]).item() * 500
+        with torch.inference_mode():
+            if i == 0:
+                score0 = 250
+                score1 = self.reward_model(features[:, :1, :]).item() * 500
+            else:
+                score0 = self.reward_model(features[:, :i, :]).item() * 500
+                score1 = self.reward_model(features[:, :i + 1, :]).item() * 500
         return score1 - score0
 
     def start(self):
@@ -308,6 +319,13 @@ class GameEnvironment(object):
             except Exception:
                 continue
 
+    def send_agari(self, actions):
+        self.send_multiply({
+            'event': 'agari',
+            'action': actions,
+            'ura_dora_indicator': self.game.ura_dora_indicator,
+        })
+
     def fetch_decision_message(self, client: Client, actions, after_tsumo):
         if client.is_human():
             message = client.fetch_message()
@@ -415,7 +433,7 @@ class GameEnvironment(object):
         return actions[0]
 
     def agari_context(self, action):
-        """Projected final scores after this win, and whether this is the last round."""
+        """Return projected scores and whether this win ends the current game."""
         who, from_who = action['who'], action['from_who']
         base = action.get('score', 240)  # unknown score (guaranteed-yaku fast path): assume 1 han 30 fu
         oya, honba = self.game.oya, self.honba
@@ -436,7 +454,26 @@ class GameEnvironment(object):
             projected[from_who] -= amount
             projected[who] += amount
         projected[who] += self.riichi_ba * 10
-        return {'projected_scores': projected, 'last_round': self.round >= 7}
+        return {
+            'projected_scores': projected,
+            'last_round': self._game_ends_after_win(projected, who),
+        }
+
+    def _game_ends_after_win(self, projected_scores, winner):
+        change_oya = winner != self.game.oya
+        next_round = self.round + int(change_oya)
+        if self.min_score and min(projected_scores) * 100 < self.min_score:
+            return True
+        if next_round > 11:
+            return True
+        if next_round <= 7 and (next_round != 7 or change_oya):
+            return False
+        if max(projected_scores) < 300:
+            return False
+        if change_oya:
+            return True
+        leader = max(range(4), key=projected_scores.__getitem__)
+        return leader == self.game.oya
 
     def discard_by_ai(self, who, tiles, banned):
         if self.ai_agent is None:
@@ -447,6 +484,8 @@ class GameEnvironment(object):
         if banned:
             tiles = [_ for _ in tiles if _ // 4 not in banned]
         state = self.game.get_feature(who)
+        if self.train and ai_agent.discard_model is not None:
+            state = ai_agent.prepare_state(state, ai_agent.discard_model)
 
         if self.train and ai_agent.discard_model is not None:
             # In training mode we sample actions from policy distribution for on-policy RL.
@@ -1103,11 +1142,11 @@ class GameEnvironment(object):
                 if len(res) == 3:
                     self.send_multiply({'event': 'ryuukyoku', 'why': 'ron3', 'action': res})  # 三家和
                     return {'event': 'ryuukyoku', 'why': 'ron3', 'action': res}
-                self.send_multiply({'event': 'agari', 'action': res})
+                self.send_agari(res)
                 return res
             event_type = res.get('type')
             if event_type == 'agari':
-                self.send_multiply({'event': 'agari', 'action': [res]})
+                self.send_agari([res])
                 return [res]
             if event_type == 'ryuukyoku':
                 self.send_multiply({'event': 'ryuukyoku', 'why': 'yao9', 'who': res.get('who'), 'hai': list(p.tiles)})
@@ -1139,7 +1178,7 @@ class GameEnvironment(object):
                 if len(actions) == 3:
                     self.send_multiply({'event': 'ryuukyoku', 'why': 'ron3', 'action': actions})  # 三家和
                     return {'event': 'ryuukyoku', 'why': 'ron3', 'action': actions}
-                self.send_multiply({'event': 'agari', 'action': actions})
+                self.send_agari(actions)
                 return actions
 
             if self.game.first_round and p.menfon == 30 and 27 <= p.discard_tiles[0] // 4 <= 30:  # 第一巡四风连打判定
@@ -1198,11 +1237,11 @@ class GameEnvironment(object):
                             if len(res) == 3:
                                 self.send_multiply({'event': 'ryuukyoku', 'why': 'ron3', 'action': res})  # 三家和
                                 return {'event': 'ryuukyoku', 'why': 'ron3', 'action': res}
-                            self.send_multiply({'event': 'agari', 'action': res})
+                            self.send_agari(res)
                             return res
                         event_type = res.get('type')
                         if event_type == 'agari':
-                            self.send_multiply({'event': 'agari', 'action': [res]})
+                            self.send_agari([res])
                             return [res]
                         if event_type != 'pass':
                             self.send_multiply({'event': event_type, 'action': res})
@@ -1234,11 +1273,11 @@ class GameEnvironment(object):
                     if len(res) == 3:
                         self.send_multiply({'event': 'ryuukyoku', 'why': 'ron3', 'action': res})  # 三家和
                         return {'event': 'ryuukyoku', 'why': 'ron3', 'action': res}
-                    self.send_multiply({'event': 'agari', 'action': res})
+                    self.send_agari(res)
                     return res
                 event_type = res.get('type')
                 if event_type == 'agari':
-                    self.send_multiply({'event': 'agari', 'action': [res]})
+                    self.send_agari([res])
                     return [res]
                 if event_type == 'ryuukyoku':
                     self.send_multiply({'event': 'ryuukyoku', 'why': 'yao9', 'who': res.get('who'), 'hai': list(p.tiles)})
@@ -1250,7 +1289,14 @@ class GameEnvironment(object):
 
 
 class Server:
-    def __init__(self, host, port, AI_count, min_score, fast, allow_observe, train=False):
+    def __init__(self, host, port, AI_count, min_score, fast, allow_observe, train=False, reward_model_path=None):
+        reward_model_path = Path(reward_model_path or 'model/saved/reward-model/best.pt')
+        if not reward_model_path.is_absolute():
+            reward_model_path = Path(__file__).resolve().parents[1] / reward_model_path
+        if train and not reward_model_path.is_file():
+            raise FileNotFoundError(
+                f'--train requires a reward predictor checkpoint: {reward_model_path}'
+            )
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((host, port))
@@ -1258,13 +1304,20 @@ class Server:
         self.ROOM_ID_LOCK = 0
         signal.signal(signal.SIGINT, self.close_server)
         signal.signal(signal.SIGTERM, self.close_server)
-        train = train and os.path.isfile('model/saved/reward-model/best.pt')
         AI_count = 4 if train else AI_count  # 训练模式下必须4个AI
         self.AI_count = AI_count
         self.train = train
         self.handshake_timeout = 5
         self.max_message_size = 64 * 1024
-        self.game = GameEnvironment(has_aka=True, AI_count=AI_count, min_score=min_score, fast=fast, allow_observe=allow_observe, train=train)
+        self.game = GameEnvironment(
+            has_aka=True,
+            AI_count=AI_count,
+            min_score=min_score,
+            fast=fast,
+            allow_observe=allow_observe,
+            train=train,
+            reward_model_path=reward_model_path,
+        )
         logging.info(red(f"Server running at {host}:{port} with {self.AI_count} AI..."))
 
     def close_server(self, signum, frame):
@@ -1450,10 +1503,20 @@ if __name__ == '__main__':
     args.add_argument('--debug', '-d', action='store_true', help='Print more details')
     args.add_argument('--fast', '-f', action='store_true', help='Cancel AI thinking time')
     args.add_argument('--train', '-t', action='store_true', help='Collect playing data')
+    args.add_argument('--reward_model_path', default='model/saved/reward-model/best.pt', type=str)
     args = args.parse_args()
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
-    server = Server(args.host, args.port, args.AI, args.min_score, args.fast, args.allow_observe, args.train)
+    server = Server(
+        args.host,
+        args.port,
+        args.AI,
+        args.min_score,
+        args.fast,
+        args.allow_observe,
+        args.train,
+        args.reward_model_path,
+    )
     asyncio.run(server.run())

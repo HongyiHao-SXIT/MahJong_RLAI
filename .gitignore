@@ -2,7 +2,12 @@
 .idea/
 *.log
 *.cache
+__pycache__/
+*.py[cod]
 model/saved/
+data/
+output/
+wandb/
 model/__pycache__/
 .pytest_cache/
 /online_game/__pycache__/
@@ -12,3 +17,9 @@ model/__pycache__/
 /sl_train/__pycache__/
 .vs/
 .DS_Store
+cpp_backend/build/
+cpp_backend/server
+cpp_backend/server.exe
+online_game/Server/server.exe
+godot_client/.godot/
+online_game/mah-jong/.godot/

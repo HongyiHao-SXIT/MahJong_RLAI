@@ -19,27 +19,35 @@
 
 ### Python AI 引擎
 
-```powershell
-conda create -n mahjong python=3.9 -y
+```bash
+conda create -n mahjong python=3.11 -y
 conda activate mahjong
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-主要依赖：`PyTorch 2.0`、`numpy`。
+当前依赖固定版本对应 Python 3.11。普通对局可使用 CPU；训练建议使用兼容的 GPU。
+运行 `python check.py` 可查看 PyTorch 与 CUDA 环境。
 
-训练/对战需要 GPU，可通过 `python check.py` 验证 CUDA 是否可用。
+在仓库根目录运行检查：
+
+```bash
+python -m compileall -q mahjong model online_game rl_train sl_train dataset test
+python -m pytest -q
+```
 
 ### C++ 后端
 
 **要求：** GCC 12+ / MinGW-w64（支持 C++20）。
 
-```powershell
+```bash
 cd cpp_backend
-g++ -std=c++20 -O2 -Isrc src/main.cpp -o build/server.exe -lws2_32
-# 或直接运行: build.bat
+make
+./build/server -P 9999 -A 3 -ob -f
 ```
 
-**零外部依赖** — 后端自带了 WebSocket（RFC 6455）、JSON 和 SHA-1 的实现。
+Windows 下运行 `build.bat`，再运行 `build\server.exe -P 9999 -A 3 -ob -f`。
+后端不依赖外部库，自带 WebSocket、JSON 和 SHA-1 实现。内置 AI 仅为简单回退逻辑，
+不会加载 PyTorch 模型。
 
 ### Godot 客户端
 
@@ -51,23 +59,11 @@ g++ -std=c++20 -O2 -Isrc src/main.cpp -o build/server.exe -lws2_32
 
 ### 方案 A：C++ 后端 + Godot 客户端（WebSocket 直连，无需桥接）
 
-**1. 准备模型**
+**1. 启动 C++ 服务端**
 
-将训练好的权重放在 `model/saved/` 下：
-
-```
-model/saved/
-├── discard-model/best.pt   # 弃牌模型（必须）
-├── riichi-model/best.pt    # 立直模型
-├── furo-model/best.pt      # 副露模型
-└── reward-model/best.pt    # 奖励预测器
-```
-
-**2. 启动 C++ 服务端**
-
-```powershell
+```bash
 cd cpp_backend
-build/server.exe -P 9999 -A 3 -ob
+./build/server -P 9999 -A 3 -ob -f
 ```
 
 | 参数 | 说明 |
@@ -78,40 +74,35 @@ build/server.exe -P 9999 -A 3 -ob
 | `-d` | Debug 日志 |
 | `-ob` | 允许观战 |
 
-**3. 打开 Godot 客户端**
+**2. 打开 Godot 客户端**
 
 在 Godot 4.6+ 中打开 `godot_client/`，运行项目，输入服务器地址（`127.0.0.1:9999`）和用户名，点击 **Connect**。
 
-**4. (可选) 接入 Python AI 引擎**
+当前 C++ 服务端使用内置回退 AI，尚未接入 Python 模型服务；目前不能通过
+`AIProxy` 使用 PyTorch 检查点。
 
-C++ 后端内置了简易 AI。要使用完整的 PyTorch 模型，单独启动 Python AI 引擎：
-
-```powershell
-python online_game/server.py -A 0 -H 0.0.0.0  # 纯 AI 模式，作为 AI 后端
-```
-
-然后配置 `ai_proxy.hpp` 接入。
-
-### 方案 B：Python 服务端 + 网页客户端（传统方式）
+### 方案 B：Python 服务端 + 终端客户端（神经网络 AI）
 
 **1. 启动服务端（终端 1）**
 
-```powershell
-python online_game/server.py -A 3 -H 0.0.0.0
+将训练好的 `discard-model/best.pt`、`riichi-model/best.pt`、`chi-model/best.pt`、
+`pon-model/best.pt` 和 `kan-model/best.pt` 放在 `model/saved/` 下。奖励预测器仅强化学习训练时需要。
+检查点不纳入 Git；PyTorch 检查点使用 Python 序列化，只加载可信来源的文件。
+
+```bash
+python online_game/server.py -A 3 -H 127.0.0.1 -P 9999 -f
 ```
 
-**2. 启动 WebSocket 桥接（终端 2）**
+**2. 加入对局（终端 2）**
 
-```powershell
-websockify 8888 127.0.0.1:9999
+```bash
+python online_game/client.py -H 127.0.0.1 -P 9999 -U Player1
 ```
 
-**3. 启动网页客户端（终端 3）**
-
-```powershell
-cd online_game/web_client
-python -m http.server 8080
-```
+此方式会加载 `model/saved/` 中的 PyTorch 模型。模型检查点和天凤训练日志未包含在仓库，
+需要自行获取或训练。旧版 291/313 通道检查点可通过截去新增的末尾 look-ahead 通道继续运行；
+新模型输入为弃牌/立直 310 通道、副露 332 通道。
+强化学习训练和服务端 `--train` 模式还需要 `model/saved/reward-model/best.pt`，仓库未提供该文件。
 
 然后用浏览器打开 `http://localhost:8080`，输入用户名后点击"连接"即可开始对局。
 

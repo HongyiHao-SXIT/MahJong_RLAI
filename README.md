@@ -19,27 +19,37 @@ A Riichi Mahjong AI reproducing Microsoft Research Asia's [Suphx](https://arxiv.
 
 ### Python AI Engine
 
-```powershell
-conda create -n mahjong python=3.9 -y
+```bash
+conda create -n mahjong python=3.11 -y
 conda activate mahjong
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-Primary dependencies: `PyTorch 2.0`, `numpy`.
+Python 3.11 is the supported environment for the pinned PyTorch and NumPy versions.
+Gameplay runs on CPU; a compatible GPU is recommended for training. Run `python check.py`
+to check the installed PyTorch and CUDA versions.
 
-Training and gameplay require a GPU. Run `python check.py` to verify CUDA availability.
+Run the automated checks from the repository root:
+
+```bash
+python -m compileall -q mahjong model online_game rl_train sl_train dataset test
+python -m pytest -q
+```
 
 ### C++ Backend
 
 **Requirements:** GCC 12+ / MinGW-w64 (C++20 support).
 
-```powershell
+```bash
 cd cpp_backend
-g++ -std=c++20 -O2 -Isrc src/main.cpp -o build/server.exe -lws2_32
-# or simply: build.bat
+make
+./build/server -P 9999 -A 3 -ob -f
 ```
 
-No external libraries — the backend includes its own WebSocket (RFC 6455), JSON, and SHA-1 implementations.
+On Windows, run `build.bat` and then `build\server.exe -P 9999 -A 3 -ob -f`.
+The backend has no external library dependencies; it includes its own WebSocket,
+JSON, and SHA-1 implementations. Its built-in AI is a simple fallback and does not
+load the PyTorch checkpoints.
 
 ### Godot Client
 
@@ -51,23 +61,11 @@ Open `godot_client/project.godot` with **Godot 4.6+**. All scripts are in GDScri
 
 ### Option A: C++ Backend + Godot Client (WebSocket, no bridge needed)
 
-**1. Prepare Models**
+**1. Start C++ Server**
 
-Place trained weights under `model/saved/`:
-
-```
-model/saved/
-├── discard-model/best.pt   # Discard model (required)
-├── riichi-model/best.pt    # Riichi model
-├── furo-model/best.pt      # Furo (meld) model
-└── reward-model/best.pt    # Reward predictor
-```
-
-**2. Start C++ Server**
-
-```powershell
+```bash
 cd cpp_backend
-build/server.exe -P 9999 -A 3 -ob
+./build/server -P 9999 -A 3 -ob -f
 ```
 
 | Flag | Description |
@@ -78,42 +76,42 @@ build/server.exe -P 9999 -A 3 -ob
 | `-d` | Debug logging |
 | `-ob` | Allow observers |
 
-**3. Open Godot Client**
+**2. Open Godot Client**
 
 Open `godot_client/` in Godot 4.6+, run the project, enter server address (`127.0.0.1:9999`) and username, then click **Connect**.
 
-**4. (Optional) Connect Python AI Engine**
+The C++ server currently uses its built-in fallback AI; it is not connected to the
+Python model server. The `AIProxy` integration is not a supported way to use the
+PyTorch checkpoints yet.
 
-The C++ server has built-in simple AI. To use the full PyTorch model, start the Python AI engine separately:
-
-```powershell
-python online_game/server.py -A 0 -H 0.0.0.0  # AI-only mode, acts as AI backend
-```
-
-Then configure `ai_proxy.hpp` to connect to it.
-
-### Option B: Python Server + Web Client (legacy)
+### Option B: Python Server + Terminal Client (neural AI)
 
 **1. Start Server (Terminal 1)**
 
-```powershell
-python online_game/server.py -A 3 -H 0.0.0.0
+Place the trained checkpoints under `model/saved/`: `discard-model/best.pt`,
+`riichi-model/best.pt`, `chi-model/best.pt`, `pon-model/best.pt`, and
+`kan-model/best.pt`. The reward predictor is only needed for RL training.
+Checkpoints are excluded from Git; load only trusted checkpoint files because
+PyTorch checkpoints use Python serialization.
+
+```bash
+python online_game/server.py -A 3 -H 127.0.0.1 -P 9999 -f
 ```
 
-**2. Start WebSocket Bridge (Terminal 2)**
+**2. Join the game (Terminal 2)**
 
-```powershell
-websockify 8888 127.0.0.1:9999
+```bash
+python online_game/client.py -H 127.0.0.1 -P 9999 -U Player1
 ```
 
-**3. Start Web Client (Terminal 3)**
+This route uses the PyTorch models in `model/saved/`. The repository does not track
+model checkpoints or Tenhou training logs; obtain/train those files separately.
+Legacy checkpoints with 291/313 input channels are supported by trimming only the
+new trailing look-ahead channels. New models should be trained with the current
+feature sizes (310 channels for discard/riichi and 332 for meld decisions).
 
-```powershell
-cd online_game/web_client
-python -m http.server 8080
-```
-
-Open `http://localhost:8080` in a browser.
+The RL trainers and `--train` server mode additionally require
+`model/saved/reward-model/best.pt`; this checkpoint is not included.
 
 > A command-line client is also available: `python online_game/client.py -U User1 -H localhost`
 

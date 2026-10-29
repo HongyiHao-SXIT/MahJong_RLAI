@@ -1,10 +1,17 @@
 CXX := g++
 CXXFLAGS := -std=c++20 -O2 -Wall -Wextra
-LDFLAGS := -lws2_32 -lz
 
 SRCDIR := src
 BUILDDIR := build
-TARGET := $(BUILDDIR)/server.exe
+ifeq ($(OS),Windows_NT)
+EXEEXT := .exe
+LDLIBS := -lws2_32
+else
+EXEEXT :=
+CXXFLAGS += -pthread
+LDLIBS := -pthread
+endif
+TARGET := $(BUILDDIR)/server$(EXEEXT)
 
 SRCS := $(wildcard $(SRCDIR)/*.cpp)
 OBJS := $(patsubst $(SRCDIR)/%.cpp,$(BUILDDIR)/%.o,$(SRCS))
@@ -17,7 +24,7 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -I$(SRCDIR) -c $< -o $@
 
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)

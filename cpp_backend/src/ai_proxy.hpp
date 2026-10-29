@@ -24,7 +24,7 @@
     #define SOCKET int
     #define INVALID_SOCKET (-1)
     #define SOCKET_ERROR (-1)
-    #define closesocket close
+    #define closesocket ::close
 #endif
 
 // AIProxy connects to a Python AI engine process and forwards

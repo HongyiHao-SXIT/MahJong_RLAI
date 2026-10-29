@@ -1,5 +1,10 @@
 # MahJong RLAI - Backend Development Guide
 
+> Legacy backend documentation: this describes `online_game/Server/server.cpp`.
+> The actively maintained C++20 WebSocket server is in [`cpp_backend/`](../../cpp_backend/),
+> and the Python model server is [`online_game/server.py`](../server.py). Use the root
+> [`README.md`](../../README.md) for current setup and run instructions.
+
 ## 1. Project Overview
 
 This project is an online Riichi Mahjong battle server system that supports both human-vs-AI and online multiplayer games. The backend consists of two parts: a C++ game server and a Python AI engine. The client side supports a Python terminal client and a web client.

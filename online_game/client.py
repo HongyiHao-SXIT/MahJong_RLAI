@@ -307,7 +307,7 @@ class Mahjong(object):
                 elif event == 'agari':
                     self.end = True
                     actions = message['action']
-                    ura_dora = message['ura_dora_indicator']
+                    ura_dora = message.get('ura_dora_indicator', [])
                     self.latest_event = f"里宝牌指示牌:\n{ascii_style_print([ura_dora], with_color=None)}\n\n"
                     for action in actions:
                         who = action['who']

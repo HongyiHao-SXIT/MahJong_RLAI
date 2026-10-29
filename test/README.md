@@ -14,7 +14,7 @@
 在仓库根目录执行：
 
 ```powershell
-conda create -n mahjong python=3.9 -y
+conda create -n mahjong python=3.11 -y
 conda activate mahjong
 pip install -r requirements.txt
 pip install flake8 pytest
@@ -22,7 +22,7 @@ pip install flake8 pytest
 
 ## 3. 当前测试现状
 
-- 当前仓库中尚无 `test_*.py` 或 `*_test.py` 文件。
+- `test/` 中包含核心 Mahjong 规则、特征维度和旧版模型兼容性测试。
 - CI（`.github/workflows/python-package-conda.yml`）已配置：
   - `flake8` 静态检查。
   - 若存在测试文件则运行 `python -m pytest`，否则跳过。
@@ -60,16 +60,16 @@ python -m flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127
 python -m pytest -q
 ```
 
-如果没有任何测试文件，属于正常现象（与 CI 行为一致）。
+测试失败时请先检查完整 traceback；需要特定模型文件的训练/在线功能通过独立集成测试验证。
 
 ## 5. 手工集成测试
 
 ## 5.1 C++ 后端可用性
 
-```powershell
+```bash
 cd cpp_backend
-build.bat
-build\server.exe -P 9999 -A 3 -ob
+make
+./build/server -P 9999 -A 3 -ob -f
 ```
 
 检查项：

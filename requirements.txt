@@ -1,15 +1,16 @@
-torch==2.0.1
-torchvision==0.15.2
-tianshou
+torch>=2.2.0,<3
+tianshou==2.0.1
+gymnasium>=0.26,<2
 
-numpy==1.25.2
-scikit-learn~=1.3.0
-matplotlib~=3.7.2
+numpy>=1.26,<3
+scikit-learn>=1.3,<2
+matplotlib>=3.8,<4
 
 quart
 websockify
 
 requests==2.31.0
 beautifulsoup4
+termcolor
 
-wandb==0.15.8
+wandb>=0.17,<1
